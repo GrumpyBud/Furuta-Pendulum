@@ -1,0 +1,49 @@
+[hardware]
+# BCM GPIO numbers, not physical header pin numbers.
+encoder_a_bcm = 17
+encoder_b_bcm = 27
+estop_bcm = 22
+gpio_chip = 0
+
+# GPIO Zero reports one step per complete quadrature sequence, while the old
+# Teensy Encoder library reported x4 edge counts. For the previous example of
+# 8192 Teensy counts/rev, start with 2048 here and verify by hand.
+pendulum_steps_per_revolution = 2048
+pendulum_direction = 1.0
+motor_turns_to_arm_radians = 6.283185307179586
+motor_direction = 1.0
+
+[odrive]
+# Leave empty when exactly one ODrive is connected. Otherwise use the uppercase
+# hexadecimal serial shown by odrivetool, for example "306A396A3235".
+serial_number = ""
+watchdog_timeout_s = 0.10
+usb_operation_timeout_s = 0.030
+
+[control]
+# This is a best-effort Linux/USB loop, not a hard real-time guarantee.
+control_hz = 200.0
+max_control_lateness_s = 0.020
+telemetry_interval_s = 1.0
+velocity_filter_hz = 45.0
+
+torque_limit_nm = 1.5
+arm_angle_limit_rad = 2.6
+arm_velocity_limit_rad_s = 25.0
+pendulum_velocity_limit_rad_s = 60.0
+
+pendulum_mass_kg = 0.125
+pendulum_com_length_m = 0.145
+pendulum_inertia_kg_m2 = 0.0035
+swing_energy_gain = 7.0
+swing_arm_damping = 0.08
+swing_torque_limit_nm = 0.65
+catch_angle_rad = 0.22
+drop_angle_rad = 0.45
+catch_pendulum_velocity_rad_s = 3.0
+
+# Starting values only. Derive these for the measured plant and measured Pi loop.
+balance_arm_angle_gain = 1.8
+balance_pendulum_angle_gain = -18.0
+balance_arm_velocity_gain = 1.25
+balance_pendulum_velocity_gain = -2.2

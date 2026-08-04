@@ -1,4 +1,4 @@
-#pragma once
+#pragma once  // Legacy Teensy/CAN control math.
 
 #include <cmath>
 
@@ -67,4 +67,3 @@ inline float swingUpTorque(const State& x, const float mass_kg,
 }
 
 }  // namespace furuta
-

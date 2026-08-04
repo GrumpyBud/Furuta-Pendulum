@@ -1,4 +1,4 @@
-#pragma once
+#pragma once  // Legacy Teensy/CAN configuration.
 
 #include "control_math.hpp"
 
@@ -43,4 +43,3 @@ constexpr float kCatchPendulumVelocityRadS = 3.0F;
 constexpr furuta::Gains kBalanceGains{1.8F, -18.0F, 1.25F, -2.2F};
 
 }  // namespace config
-

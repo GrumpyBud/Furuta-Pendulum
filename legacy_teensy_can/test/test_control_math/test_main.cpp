@@ -1,3 +1,4 @@
+// Tests for the legacy Teensy/CAN implementation.
 #include <unity.h>
 
 #include "control_math.hpp"
@@ -38,4 +39,3 @@ int main(int, char**) {
   RUN_TEST(test_swing_up_is_zero_at_target_energy);
   return UNITY_END();
 }
-

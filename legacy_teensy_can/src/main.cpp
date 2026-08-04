@@ -1,3 +1,4 @@
+// Legacy Teensy 4.1/CAN implementation.
 #include <Arduino.h>
 #include <Encoder.h>
 #include <ODriveCAN.h>
@@ -243,4 +244,3 @@ void loop() {
     printStatus();
   }
 }
-

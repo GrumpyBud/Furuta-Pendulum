@@ -1,4 +1,10 @@
 .pio/
 .vscode/
 *.log
-
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+build/
+*.egg-info/
+raspberry_pi_usb/config.toml
