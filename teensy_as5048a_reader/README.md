@@ -2,7 +2,7 @@
 
 Standalone firmware that reads an `AS5048A-TS_EK_AB` magnetic encoder over SPI and streams CSV over the Teensy's USB serial port. It does not communicate with an ODrive and cannot command a motor.
 
-The output includes the 14-bit raw angle, degrees, automatic-gain-control value, magnetic diagnostics, and cumulative SPI parity/protocol error counts.
+The output includes the 14-bit absolute and zero-relative angles, degrees, automatic-gain-control value, magnetic diagnostics, and cumulative SPI parity/protocol error counts. It also includes a polished local web dashboard for viewing and zeroing the encoder.
 
 ## Power everything off first
 
@@ -46,22 +46,51 @@ pio device monitor -b 115200
 
 If upload waits for the board, briefly press the Teensy's Program button.
 
+## Local web dashboard
+
+After uploading the latest firmware, start the included dependency-free local server:
+
+```sh
+python3 web/serve.py
+```
+
+Open [http://localhost:8765](http://localhost:8765) in Chrome or Edge, then:
+
+1. Click **Connect Teensy**.
+2. Choose the Teensy USB serial device in the browser prompt.
+3. Confirm that the angle, counts, health, chart, and terminal stream begin updating.
+4. Move the pendulum or magnet to the desired reference position.
+5. Click **Zero current position**. The firmware stores that absolute count as the zero offset until it restarts.
+
+The page automatically reconnects on later visits once the browser has permission. Browser security requires the first serial-port selection to come from your click. Add `?demo=1` to the URL to preview and test the interface without connected hardware.
+
+The dashboard runs only on `127.0.0.1`; it is not exposed to other machines on the network. Close the server terminal or press `Ctrl+C` to stop it.
+
+## Terminal commands
+
+You can also type these commands into any 115200-baud serial terminal:
+
+- `zero` — make the encoder's current position 0 degrees.
+- `help` — print the supported command list.
+
 ## Expected output
 
 The monitor prints 100 samples per second:
 
 ```text
-time_us,raw_count,angle_deg,agc,status,parity_errors,protocol_errors
-3021981,5319,116.8726,121,OK,0,0
+time_us,absolute_count,zeroed_count,angle_deg,agc,status,parity_errors,protocol_errors
+3021981,5319,5319,116.8726,121,OK,0,0
+# ZEROED,5319
 ```
 
 Rotate the magnet slowly by hand:
 
-1. `raw_count` should move smoothly through `0`–`16383` and wrap once per revolution.
-2. `angle_deg` should move through `0`–just under `360` degrees.
-3. One quarter-turn should change the count by approximately 4096.
-4. One complete turn should return close to the original count.
-5. `status` should remain `OK` and both error counters should remain zero.
+1. `absolute_count` should move smoothly through `0`–`16383` and wrap once per revolution.
+2. `zeroed_count` should read approximately `0` immediately after the `zero` command.
+3. `angle_deg` should move through `0`–just under `360` degrees.
+4. One quarter-turn should change the count by approximately 4096.
+5. One complete turn should return close to the original count.
+6. `status` should remain `OK` and both error counters should remain zero.
 
 ## Troubleshooting
 

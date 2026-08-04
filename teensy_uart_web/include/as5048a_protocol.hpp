@@ -30,11 +30,8 @@ constexpr uint16_t withEvenParity(uint16_t value) {
 }
 
 constexpr uint16_t makeReadCommand(const uint16_t address) {
-  return withEvenParity(static_cast<uint16_t>(kReadFlag | (address & kDataMask)));
-}
-
-constexpr uint16_t relativeCount(const uint16_t count, const uint16_t zero) {
-  return static_cast<uint16_t>((count - zero) & kDataMask);
+  return withEvenParity(
+      static_cast<uint16_t>(kReadFlag | (address & kDataMask)));
 }
 
 struct Response {

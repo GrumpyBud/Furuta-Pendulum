@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#07110f">
+    <title>Furuta Encoder Console</title>
+    <link rel="icon" href="favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <div class="ambient ambient-one"></div>
+    <div class="ambient ambient-two"></div>
+
+    <main class="shell">
+      <header class="topbar">
+        <a class="brand" href="/" aria-label="Furuta encoder console home">
+          <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+          <span>
+            <strong>FURUTA</strong>
+            <small>ENCODER CONSOLE</small>
+          </span>
+        </a>
+
+        <div class="connection-cluster">
+          <div id="connectionStatus" class="status-pill offline" role="status">
+            <span class="status-dot"></span>
+            <span id="connectionText">Teensy offline</span>
+          </div>
+          <button id="connectButton" class="button button-secondary" type="button">
+            <span class="button-icon" aria-hidden="true">⌁</span>
+            Connect Teensy
+          </button>
+        </div>
+      </header>
+
+      <section class="hero-copy" aria-labelledby="pageTitle">
+        <div>
+          <p class="eyebrow">AS5048A · LIVE INSTRUMENT</p>
+          <h1 id="pageTitle">See every turn.<br><span>Set zero with confidence.</span></h1>
+        </div>
+        <p class="hero-note">A direct USB serial view of your 14-bit magnetic encoder. No motor commands, no ODrive connection.</p>
+      </section>
+
+      <section class="dashboard-grid">
+        <article class="panel angle-panel">
+          <div class="panel-heading">
+            <div>
+              <p class="panel-kicker">ZERO-RELATIVE POSITION</p>
+              <h2>Angular position</h2>
+            </div>
+            <span id="sampleRate" class="sample-rate">— Hz</span>
+          </div>
+
+          <div class="angle-layout">
+            <div class="dial-wrap" aria-label="Encoder angle gauge">
+              <div class="dial-rings"></div>
+              <svg class="dial" viewBox="0 0 320 320" role="img" aria-label="Current encoder angle">
+                <defs>
+                  <linearGradient id="dialGradient" x1="0" y1="0" x2="1" y2="1">
+                    <stop offset="0" stop-color="#7cf5ca"/>
+                    <stop offset="1" stop-color="#e2ff78"/>
+                  </linearGradient>
+                  <filter id="glow">
+                    <feGaussianBlur stdDeviation="3.5" result="blur"/>
+                    <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+                  </filter>
+                </defs>
+                <circle class="dial-track" cx="160" cy="160" r="126"/>
+                <circle id="dialProgress" class="dial-progress" cx="160" cy="160" r="126"/>
+                <g class="ticks" aria-hidden="true">
+                  <path d="M160 22v14 M298 160h-14 M160 298v-14 M22 160h14"/>
+                  <path class="minor" d="M229 40.5l-7 12.1 M279.5 91l-12.1 7 M279.5 229l-12.1-7 M229 279.5l-7-12.1 M91 279.5l7-12.1 M40.5 229l12.1-7 M40.5 91l12.1 7 M91 40.5l7 12.1"/>
+                </g>
+                <g id="needle" class="needle">
+                  <line x1="160" y1="166" x2="160" y2="70"/>
+                  <circle cx="160" cy="160" r="10"/>
+                  <circle class="needle-core" cx="160" cy="160" r="4"/>
+                </g>
+              </svg>
+              <div class="dial-readout">
+                <div><span id="angleValue">0.00</span><sup>°</sup></div>
+                <small id="turnLabel">WAITING FOR DATA</small>
+              </div>
+            </div>
+
+            <div class="action-stack">
+              <div class="zero-copy">
+                <span class="index">01</span>
+                <p>Move the pendulum to your reference position.</p>
+              </div>
+              <div class="zero-copy">
+                <span class="index">02</span>
+                <p>Press zero to make the current angle 0°.</p>
+              </div>
+              <button id="zeroButton" class="button button-zero" type="button" disabled>
+                <span class="target-icon" aria-hidden="true"></span>
+                Zero current position
+              </button>
+              <p id="zeroFeedback" class="zero-feedback" aria-live="polite">Connect the Teensy to enable zeroing.</p>
+            </div>
+          </div>
+        </article>
+
+        <aside class="metrics-column" aria-label="Encoder metrics">
+          <article class="panel metric-card metric-primary">
+            <div class="metric-label"><span>ABSOLUTE COUNT</span><i>14 BIT</i></div>
+            <div class="metric-value"><strong id="absoluteCount">—</strong><small>/ 16383</small></div>
+            <div class="bit-bar" aria-hidden="true"><span id="countBar"></span></div>
+          </article>
+
+          <article class="panel metric-card">
+            <div class="metric-label"><span>ZEROED COUNT</span><i>REL</i></div>
+            <div class="metric-value"><strong id="zeroedCount">—</strong><small>ticks</small></div>
+          </article>
+
+          <article class="panel metric-card">
+            <div class="metric-label"><span>MAGNET HEALTH</span><i>AGC</i></div>
+            <div class="health-row">
+              <div><strong id="agcValue">—</strong><small>gain</small></div>
+              <span id="magnetStatus" class="health-chip neutral">NO DATA</span>
+            </div>
+          </article>
+
+          <article class="panel metric-card">
+            <div class="metric-label"><span>SPI INTEGRITY</span><i>LIVE</i></div>
+            <div class="error-grid">
+              <div><strong id="parityErrors">0</strong><small>parity</small></div>
+              <div><strong id="protocolErrors">0</strong><small>protocol</small></div>
+            </div>
+          </article>
+        </aside>
+
+        <article class="panel chart-panel">
+          <div class="panel-heading compact">
+            <div>
+              <p class="panel-kicker">ROLLING TRACE</p>
+              <h2>Angle history</h2>
+            </div>
+            <span class="chart-window">LAST 12 SECONDS</span>
+          </div>
+          <div class="chart-wrap">
+            <canvas id="angleChart" aria-label="Recent zero-relative angle chart"></canvas>
+            <div class="chart-scale" aria-hidden="true"><span>360°</span><span>180°</span><span>0°</span></div>
+          </div>
+        </article>
+
+        <article class="panel terminal-panel">
+          <div class="panel-heading compact terminal-heading">
+            <div>
+              <p class="panel-kicker">USB SERIAL · 115200 BAUD</p>
+              <h2>Terminal stream</h2>
+            </div>
+            <div class="terminal-actions">
+              <button id="pauseButton" class="text-button" type="button">Pause</button>
+              <button id="clearButton" class="text-button" type="button">Clear</button>
+            </div>
+          </div>
+          <div id="terminal" class="terminal" role="log" aria-live="off">
+            <div class="terminal-line system"><span>SYS</span> Dashboard ready. Connect your Teensy to begin.</div>
+          </div>
+          <div class="terminal-footer">
+            <span><i id="streamDot"></i><span id="streamState">Stream idle</span></span>
+            <span id="lastSample">No samples received</span>
+          </div>
+        </article>
+      </section>
+
+      <footer>
+        <p><span class="footer-mark">F</span> Local-only hardware console</p>
+        <p>Teensy 4.1 · AS5048A · SPI mode 1</p>
+      </footer>
+    </main>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <script src="app.js"></script>
+  </body>
+</html>

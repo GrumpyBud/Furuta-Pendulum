@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#07110e">
+    <title>Furuta Workshop</title>
+    <link rel="icon" href="favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <div class="ambient one"></div><div class="ambient two"></div>
+    <main>
+      <header class="topbar">
+        <a class="brand" href="#setup" aria-label="Furuta Workshop home">
+          <span class="brand-mark">F</span>
+          <span><strong>Furuta Workshop</strong><small>Teensy control console</small></span>
+        </a>
+        <div class="connection-block">
+          <span id="connectionPill" class="pill offline"><i></i><span id="connectionText">Not connected</span></span>
+          <button id="connectButton" class="button secondary" type="button">Connect Teensy</button>
+        </div>
+      </header>
+
+      <section class="hero">
+        <div>
+          <p class="eyebrow">GUIDED COMMISSIONING · LOCAL USB ONLY</p>
+          <h1>Understand the machine<br>before it moves.</h1>
+          <p class="lede">A plain-language setup, sensor test, and bounded tuning workspace for a Teensy 4.1, ODrive S1, and AS5048A pendulum encoder.</p>
+        </div>
+        <div class="machine-state">
+          <span>Controller state</span>
+          <strong id="modeValue">OFFLINE</strong>
+          <small id="modeExplanation">Connect the Teensy to begin.</small>
+        </div>
+      </section>
+
+      <nav class="tabs" aria-label="Workflow">
+        <button class="tab active" data-page="setup" type="button"><span>1</span> Setup</button>
+        <button class="tab" data-page="test" type="button"><span>2</span> Sensor test</button>
+        <button class="tab" data-page="tune" type="button"><span>3</span> Tune</button>
+        <button class="tab" data-page="run" type="button"><span>4</span> Run</button>
+      </nav>
+
+      <div id="globalAlert" class="alert hidden" role="alert"></div>
+
+      <section id="setup" class="page active">
+        <div class="section-heading">
+          <div><p class="eyebrow">STEP 1</p><h2>Make every check turn green</h2></div>
+          <p>The motor remains disabled throughout setup. Never rely on this page as an emergency stop.</p>
+        </div>
+        <div class="check-grid">
+          <article id="checkConnection" class="check-card"><span class="check-icon">1</span><div><strong>USB connection</strong><p>Connect the browser to the Teensy.</p></div><b>WAITING</b></article>
+          <article id="checkEncoder" class="check-card"><span class="check-icon">2</span><div><strong>Pendulum encoder</strong><p>SPI data and magnet diagnostics must be clean.</p></div><b>WAITING</b></article>
+          <article id="checkOdrive" class="check-card"><span class="check-icon">3</span><div><strong>ODrive UART</strong><p>The Teensy must receive valid checksummed feedback.</p></div><b>WAITING</b></article>
+          <article id="checkEstop" class="check-card"><span class="check-icon">4</span><div><strong>Safety loop</strong><p>The normally-closed low-voltage loop must be closed.</p></div><b>WAITING</b></article>
+          <article id="checkZero" class="check-card wide"><span class="check-icon">5</span><div><strong>Reference position</strong><p>Centre the rotary arm and let the pendulum hang completely still and straight down, then save zero.</p></div><button id="zeroButton" class="button secondary" type="button" disabled>Save hanging-down zero</button><b>WAITING</b></article>
+        </div>
+        <aside class="safety-note"><strong>Before motor power</strong><p>Install guards and physical travel stops. Use a hard-wired E-stop or contactor that removes motor power. Start with a current-limited supply and the linkage disconnected. The pin-6 loop and this software are not safety-rated.</p></aside>
+      </section>
+
+      <section id="test" class="page">
+        <div class="section-heading">
+          <div><p class="eyebrow">STEP 2 · MOTOR DISABLED</p><h2>Move it by hand and verify the signs</h2></div>
+          <button id="testModeButton" class="button secondary" type="button" disabled>Enter sensor test</button>
+        </div>
+        <div class="live-grid">
+          <article class="metric hero-metric"><span>Pendulum angle</span><strong><b id="pendulumDegrees">—</b>°</strong><small>0° upright · ±180° hanging down</small></article>
+          <article class="metric"><span>Rotary arm angle</span><strong><b id="armDegrees">—</b>°</strong><small>Relative to saved zero</small></article>
+          <article class="metric"><span>Pendulum speed</span><strong><b id="pendulumRate">—</b> rad/s</strong><small>Filtered measurement</small></article>
+          <article class="metric"><span>Arm speed</span><strong><b id="armRate">—</b> rad/s</strong><small>Reported by ODrive</small></article>
+        </div>
+        <article class="chart-panel">
+          <div class="panel-title"><div><p class="eyebrow">LIVE TRACE</p><h3>Angles over the last 12 seconds</h3></div><div class="legend"><span class="pend">Pendulum</span><span class="arm">Arm</span></div></div>
+          <canvas id="stateChart" aria-label="Recent arm and pendulum angle chart"></canvas>
+        </article>
+        <div class="diagnostic-grid">
+          <article><span>Raw encoder count</span><strong id="rawCount">—</strong></article>
+          <article><span>Magnet gain (AGC)</span><strong id="agcValue">—</strong></article>
+          <article><span>SPI parity errors</span><strong id="parityErrors">—</strong></article>
+          <article><span>SPI protocol errors</span><strong id="protocolErrors">—</strong></article>
+          <article><span>Control work / worst</span><strong id="loopTiming">—</strong></article>
+        </div>
+        <div class="instruction"><span>Sign check</span><p>Rotate the arm in your chosen positive direction: arm angle and speed should become positive. Move the pendulum through upright in its positive direction: its angle and speed should become positive. If either is backward, disarm and change the matching direction constant in <code>include/config.hpp</code>—do not compensate with gain signs.</p></div>
+      </section>
+
+      <section id="tune" class="page">
+        <div class="section-heading">
+          <div><p class="eyebrow">STEP 3 · BOUNDED MANUAL TUNING</p><h2>Adjust one understandable effect at a time</h2></div>
+          <span class="temporary-label">Values reset when Teensy reboots</span>
+        </div>
+        <div class="preset-row">
+          <button class="preset" data-scale="0.65" type="button">Gentle<br><small>65% of starting gains</small></button>
+          <button class="preset selected" data-scale="1" type="button">Starting point<br><small>Repository defaults</small></button>
+          <button class="preset" data-scale="1.15" type="button">Stronger<br><small>115% of starting gains</small></button>
+        </div>
+        <div class="gain-grid">
+          <label><span><strong>Arm centring</strong><small>How firmly the rotary arm returns to its zero</small></span><input id="gainArm" type="number" min="0" max="8" step="0.05" value="1.8"><em>K₁</em></label>
+          <label><span><strong>Upright correction</strong><small>How strongly a pendulum tilt is corrected</small></span><input id="gainPendulum" type="number" min="-60" max="0" step="0.1" value="-18"><em>K₂</em></label>
+          <label><span><strong>Arm motion damping</strong><small>Reduces fast rotary-arm motion and overshoot</small></span><input id="gainArmRate" type="number" min="0" max="8" step="0.05" value="1.25"><em>K₃</em></label>
+          <label><span><strong>Pendulum motion damping</strong><small>Reduces fast pendulum motion near upright</small></span><input id="gainPendulumRate" type="number" min="-12" max="0" step="0.05" value="-2.2"><em>K₄</em></label>
+        </div>
+        <div class="tune-actions">
+          <button id="applyGainsButton" class="button secondary" type="button" disabled>Apply values while disarmed</button>
+          <p id="gainFeedback">Connect and finish setup first.</p>
+        </div>
+        <article class="deadman-panel">
+          <div><p class="eyebrow">LOW-TORQUE BALANCE TRIAL</p><h3>Hold to test</h3><p>Manually place the pendulum nearly upright and motionless. Press and continuously hold the button. Releasing it, leaving the catch region, losing USB keep-alives, opening the safety loop, or reaching 8 seconds requests idle and faults.</p></div>
+          <div class="hold-area"><button id="tuneHoldButton" type="button" disabled><span>PRESS & HOLD</span><small>Release to stop immediately</small></button><p id="tuneHint">Complete every setup check.</p></div>
+        </article>
+        <div class="instruction warning"><span>Tuning rule</span><p>Change only one value by 5–10% between trials and save the telemetry log. Automatic gain searching is intentionally not provided: moving hardware cannot safely identify an unknown Furuta pendulum without measured mechanics, experiment design, and expert review.</p></div>
+      </section>
+
+      <section id="run" class="page">
+        <div class="section-heading"><div><p class="eyebrow">STEP 4 · AUTOMATIC MOTION</p><h2>Swing up and balance</h2></div></div>
+        <article class="run-panel">
+          <div class="run-readiness"><span id="readinessRing">0/5</span><div><strong id="readinessTitle">Not ready</strong><p id="readinessText">Complete the setup checklist.</p></div></div>
+          <div class="run-controls">
+            <button id="armButton" class="button danger" type="button" disabled>Arm automatic motion</button>
+            <button id="disarmButton" class="button stop" type="button" disabled>DISARM / STOP</button>
+          </div>
+          <p class="run-copy">Arming starts swing-up immediately. Clear the full motion envelope, close the physical guard, and keep a hand near the hard-wired motor-power E-stop.</p>
+        </article>
+        <div class="live-grid compact">
+          <article class="metric"><span>Commanded torque</span><strong><b id="torqueValue">—</b> Nm</strong></article>
+          <article class="metric"><span>ODrive errors</span><strong id="odriveErrors">—</strong></article>
+          <article class="metric"><span>Current gains</span><strong id="gainSummary">—</strong></article>
+        </div>
+      </section>
+
+      <section class="log-panel">
+        <div class="panel-title"><div><p class="eyebrow">SESSION RECORD</p><h3>Events and telemetry</h3></div><div><button id="downloadButton" class="text-button" type="button">Download CSV</button><button id="clearLogButton" class="text-button" type="button">Clear</button></div></div>
+        <div id="eventLog" class="event-log" role="log"><p><time>—</time><span>Dashboard ready. Connect a Teensy to begin.</span></p></div>
+      </section>
+
+      <footer><span>Local page · no cloud connection</span><span>Teensy 4.1 · ODrive UART · AS5048A SPI</span></footer>
+    </main>
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <script src="app.js"></script>
+  </body>
+</html>

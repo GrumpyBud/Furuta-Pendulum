@@ -41,6 +41,12 @@ void test_diagnostics_decode_healthy_and_weak_magnet() {
   TEST_ASSERT_TRUE(weak.magnetic_field_too_weak);
 }
 
+void test_relative_count_wraps_at_fourteen_bits() {
+  TEST_ASSERT_EQUAL_UINT16(0U, as5048a::relativeCount(1234U, 1234U));
+  TEST_ASSERT_EQUAL_UINT16(100U, as5048a::relativeCount(1334U, 1234U));
+  TEST_ASSERT_EQUAL_UINT16(16334U, as5048a::relativeCount(50U, 100U));
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_angle_read_command_has_even_parity);
@@ -49,5 +55,6 @@ int main(int, char**) {
   RUN_TEST(test_bad_parity_is_detected);
   RUN_TEST(test_protocol_error_flag_is_detected);
   RUN_TEST(test_diagnostics_decode_healthy_and_weak_magnet);
+  RUN_TEST(test_relative_count_wraps_at_fourteen_bits);
   return UNITY_END();
 }

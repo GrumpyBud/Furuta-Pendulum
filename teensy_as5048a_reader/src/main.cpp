@@ -1,6 +1,8 @@
 #include <Arduino.h>
 #include <SPI.h>
 
+#include <cstring>
+
 #include "as5048a_protocol.hpp"
 
 namespace {
@@ -13,6 +15,9 @@ const SPISettings kSpiSettings(kSpiClockHz, MSBFIRST, SPI_MODE1);
 uint32_t next_sample_us = 0;
 uint32_t parity_error_count = 0;
 uint32_t protocol_error_count = 0;
+uint16_t zero_offset_count = 0;
+char command_buffer[24] = {};
+uint8_t command_length = 0;
 
 uint16_t transferFrame(const uint16_t transmit) {
   SPI.beginTransaction(kSpiSettings);
@@ -59,13 +64,59 @@ const __FlashStringHelper* diagnosticStatus(
   return F("OK");
 }
 
+void zeroEncoder() {
+  uint16_t current_count = 0;
+  if (!readRegister(as5048a::kRegisterAngle, current_count)) {
+    Serial.println(F("# ZERO_FAILED,ENCODER_READ_ERROR"));
+    return;
+  }
+  zero_offset_count = current_count;
+  Serial.print(F("# ZEROED,"));
+  Serial.println(zero_offset_count);
+}
+
+void runCommand() {
+  command_buffer[command_length] = '\0';
+  for (uint8_t index = 0; index < command_length; ++index) {
+    if (command_buffer[index] >= 'A' && command_buffer[index] <= 'Z') {
+      command_buffer[index] += 'a' - 'A';
+    }
+  }
+
+  if (strcmp(command_buffer, "zero") == 0) {
+    zeroEncoder();
+  } else if (strcmp(command_buffer, "help") == 0) {
+    Serial.println(F("# COMMANDS,zero,help"));
+  } else if (command_length > 0) {
+    Serial.print(F("# UNKNOWN_COMMAND,"));
+    Serial.println(command_buffer);
+  }
+  command_length = 0;
+}
+
+void readSerialCommands() {
+  while (Serial.available() > 0) {
+    const char incoming = static_cast<char>(Serial.read());
+    if (incoming == '\n' || incoming == '\r') {
+      if (command_length > 0) runCommand();
+      continue;
+    }
+    if (command_length < sizeof(command_buffer) - 1U) {
+      command_buffer[command_length++] = incoming;
+    } else {
+      command_length = 0;
+      Serial.println(F("# COMMAND_TOO_LONG"));
+    }
+  }
+}
+
 void printSample(const uint32_t now_us) {
-  uint16_t angle_count = 0;
+  uint16_t absolute_count = 0;
   uint16_t diagnostic_value = 0;
-  if (!readRegister(as5048a::kRegisterAngle, angle_count) ||
+  if (!readRegister(as5048a::kRegisterAngle, absolute_count) ||
       !readRegister(as5048a::kRegisterDiagnostics, diagnostic_value)) {
     Serial.print(now_us);
-    Serial.print(F(",ERR,,,READ_ERROR,"));
+    Serial.print(F(",ERR,,,,READ_ERROR,"));
     Serial.print(parity_error_count);
     Serial.print(',');
     Serial.println(protocol_error_count);
@@ -73,12 +124,16 @@ void printSample(const uint32_t now_us) {
   }
 
   const auto diagnostics = as5048a::decodeDiagnostics(diagnostic_value);
+  const uint16_t zeroed_count =
+      as5048a::relativeCount(absolute_count, zero_offset_count);
   const float angle_degrees =
-      angle_count * 360.0F / as5048a::kCountsPerRevolution;
+      zeroed_count * 360.0F / as5048a::kCountsPerRevolution;
 
   Serial.print(now_us);
   Serial.print(',');
-  Serial.print(angle_count);
+  Serial.print(absolute_count);
+  Serial.print(',');
+  Serial.print(zeroed_count);
   Serial.print(',');
   Serial.print(angle_degrees, 4);
   Serial.print(',');
@@ -103,11 +158,13 @@ void setup() {
   }
   delay(20);  // AS5048A startup is specified at up to 10 ms.
   clearEncoderError();
-  Serial.println(F("time_us,raw_count,angle_deg,agc,status,parity_errors,protocol_errors"));
+  Serial.println(F("time_us,absolute_count,zeroed_count,angle_deg,agc,status,parity_errors,protocol_errors"));
+  Serial.println(F("# READY,send zero to set the current position to 0 degrees"));
   next_sample_us = micros();
 }
 
 void loop() {
+  readSerialCommands();
   const uint32_t now_us = micros();
   if (static_cast<int32_t>(now_us - next_sample_us) < 0) return;
   next_sample_us += kSamplePeriodUs;
