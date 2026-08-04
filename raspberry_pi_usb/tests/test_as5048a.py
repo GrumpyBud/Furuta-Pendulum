@@ -36,6 +36,9 @@ class FakeSpi:
 
 
 class AS5048AProtocolTests(unittest.TestCase):
+    def test_diagnostics_register_address_matches_datasheet(self) -> None:
+        self.assertEqual(REGISTER_DIAGNOSTICS, 0x3FFC)
+
     def test_read_angle_command_is_ffff_with_even_parity(self) -> None:
         self.assertEqual(build_read_command(REGISTER_ANGLE), 0xFFFF)
 

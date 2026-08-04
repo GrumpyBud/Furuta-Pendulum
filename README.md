@@ -4,6 +4,7 @@ This repository now keeps the two hardware implementations separate:
 
 - [`legacy_teensy_can/`](legacy_teensy_can/) is the original Teensy 4.1 + CAN firmware.
 - [`raspberry_pi_usb/`](raspberry_pi_usb/) is a temporary Raspberry Pi 5 controller that talks directly to the ODrive S1 over isolated USB, reads an AS5048A absolute pendulum encoder over SPI, and reads the safety loop from Pi GPIO.
+- [`teensy_as5048a_reader/`](teensy_as5048a_reader/) is a standalone Teensy 4.1 program that only reads the AS5048A and prints its values over USB serial.
 
 Start with the README inside the implementation you intend to use. Both versions start disarmed and require an explicit `zero` followed by `arm`.
 
