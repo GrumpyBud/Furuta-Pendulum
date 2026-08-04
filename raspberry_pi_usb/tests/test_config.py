@@ -11,7 +11,7 @@ class ConfigTests(unittest.TestCase):
             path = Path(directory) / "config.toml"
             path.write_text("", encoding="utf-8")
             config = load_config(path)
-        self.assertEqual(config.hardware.encoder_a_bcm, 17)
+        self.assertEqual(config.hardware.encoder_spi_bus, 0)
         self.assertEqual(config.control.control_hz, 200.0)
 
     def test_unknown_setting_is_rejected(self) -> None:
@@ -21,14 +21,14 @@ class ConfigTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "unknown hardware setting"):
                 load_config(path)
 
-    def test_duplicate_gpio_is_rejected(self) -> None:
+    def test_invalid_spi_speed_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "config.toml"
             path.write_text(
-                "[hardware]\nencoder_a_bcm = 17\nencoder_b_bcm = 17\n",
+                "[hardware]\nencoder_spi_max_speed_hz = 0\n",
                 encoding="utf-8",
             )
-            with self.assertRaisesRegex(ValueError, "must be distinct"):
+            with self.assertRaisesRegex(ValueError, "must be positive"):
                 load_config(path)
 
 

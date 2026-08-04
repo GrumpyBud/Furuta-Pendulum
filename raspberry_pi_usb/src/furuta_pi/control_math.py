@@ -23,6 +23,21 @@ def low_pass(previous: float, sample: float, cutoff_hz: float, dt_s: float) -> f
     return previous + alpha * (sample - previous)
 
 
+def absolute_count_angle(
+    count: int,
+    down_count: int,
+    counts_per_revolution: int,
+    direction: float,
+) -> float:
+    """Convert an absolute encoder count to angle with upright equal to zero."""
+    if counts_per_revolution <= 0:
+        raise ValueError("counts_per_revolution must be positive")
+    relative_count = count - down_count
+    return wrap_angle(
+        relative_count * direction * TWO_PI / counts_per_revolution - PI
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class State:
     arm_angle_rad: float

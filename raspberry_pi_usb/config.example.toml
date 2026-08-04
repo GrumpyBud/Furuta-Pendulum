@@ -1,14 +1,15 @@
 [hardware]
-# BCM GPIO numbers, not physical header pin numbers.
-encoder_a_bcm = 17
-encoder_b_bcm = 27
+# AS5048A on Raspberry Pi SPI0 CE0 (/dev/spidev0.0).
+encoder_spi_bus = 0
+encoder_spi_device = 0
+encoder_spi_max_speed_hz = 1000000
+encoder_diagnostic_interval_reads = 20
+
+# BCM GPIO number, not a physical header pin number.
 estop_bcm = 22
 gpio_chip = 0
 
-# GPIO Zero reports one step per complete quadrature sequence, while the old
-# Teensy Encoder library reported x4 edge counts. For the previous example of
-# 8192 Teensy counts/rev, start with 2048 here and verify by hand.
-pendulum_steps_per_revolution = 2048
+# The AS5048A resolution is fixed at 16384 counts/revolution.
 pendulum_direction = 1.0
 motor_turns_to_arm_radians = 6.283185307179586
 motor_direction = 1.0

@@ -4,6 +4,7 @@ import unittest
 from furuta_pi.control_math import (
     Gains,
     State,
+    absolute_count_angle,
     balance_torque,
     clamp,
     swing_up_torque,
@@ -33,6 +34,18 @@ class ControlMathTests(unittest.TestCase):
             swing_up_torque(upright_at_rest, 0.1, 0.2, 0.003, 5.0, 0.1),
             0.0,
         )
+
+    def test_absolute_encoder_count_uses_down_and_upright_convention(self) -> None:
+        self.assertAlmostEqual(absolute_count_angle(123, 123, 16384, 1.0), -math.pi)
+        self.assertAlmostEqual(
+            absolute_count_angle(123 + 8192, 123, 16384, 1.0),
+            0.0,
+        )
+
+    def test_absolute_encoder_count_wraps_across_raw_zero(self) -> None:
+        angle = absolute_count_angle(100, 16000, 16384, 1.0)
+        expected = (484 * 2.0 * math.pi / 16384) - math.pi
+        self.assertAlmostEqual(angle, expected)
 
 
 if __name__ == "__main__":

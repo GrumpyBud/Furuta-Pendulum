@@ -9,10 +9,11 @@ import sys
 from typing import Protocol
 
 from .config import AppConfig
+from .as5048a import COUNTS_PER_REVOLUTION
 from .control_math import (
     PI,
-    TWO_PI,
     State,
+    absolute_count_angle,
     balance_torque,
     clamp,
     low_pass,
@@ -24,7 +25,7 @@ from .odrive_usb import DriveFeedback, ODriveUsb
 
 class Inputs(Protocol):
     @property
-    def pendulum_steps(self) -> int: ...
+    def pendulum_count(self) -> int: ...
 
     @property
     def estop_closed(self) -> bool: ...
@@ -46,7 +47,8 @@ class FurutaController:
         self.drive = drive
         self.mode = Mode.DISARMED
         self._zero_valid = False
-        self._pendulum_down_steps = 0
+        self._pendulum_down_count = 0
+        self._last_pendulum_count = 0
         self._arm_zero_turns = 0.0
         self._last_pendulum_angle = -PI
         self._pendulum_velocity = 0.0
@@ -66,13 +68,14 @@ class FurutaController:
 
     def _sample_state(self, feedback: DriveFeedback, dt_s: float) -> State:
         hardware = self.config.hardware
-        relative_steps = self.inputs.pendulum_steps - self._pendulum_down_steps
-        step_to_rad = (
-            hardware.pendulum_direction
-            * TWO_PI
-            / hardware.pendulum_steps_per_revolution
+        pendulum_count = self.inputs.pendulum_count
+        self._last_pendulum_count = pendulum_count
+        pendulum_angle = absolute_count_angle(
+            pendulum_count,
+            self._pendulum_down_count,
+            COUNTS_PER_REVOLUTION,
+            hardware.pendulum_direction,
         )
-        pendulum_angle = wrap_angle(relative_steps * step_to_rad - PI)
         raw_velocity = wrap_angle(
             pendulum_angle - self._last_pendulum_angle
         ) / max(dt_s, 1.0e-6)
@@ -170,7 +173,7 @@ class FurutaController:
             if self._last_feedback is None:
                 print("Refused: no ODrive feedback yet.")
                 return
-            self._pendulum_down_steps = self.inputs.pendulum_steps
+            self._pendulum_down_count = self.inputs.pendulum_count
             self._arm_zero_turns = self._last_feedback.position_turns
             self._last_pendulum_angle = -PI
             self._pendulum_velocity = 0.0
@@ -225,6 +228,7 @@ class FurutaController:
             f"pend={state.pendulum_angle_rad:.4f} "
             f"arm_rate={state.arm_velocity_rad_s:.3f} "
             f"pend_rate={state.pendulum_velocity_rad_s:.3f} "
+            f"encoder_raw={self._last_pendulum_count} "
             f"loop_dt_ms={self._last_loop_dt_ms:.2f} "
             f"max_late_ms={self._max_lateness_ms:.2f}"
             f"{suffix}",
@@ -262,7 +266,12 @@ class FurutaController:
             last_sample_time = now
             self._last_loop_dt_ms = dt_s * 1000.0
             self._last_feedback = feedback
-            self._last_state = self._sample_state(feedback, dt_s)
+            try:
+                self._last_state = self._sample_state(feedback, dt_s)
+            except Exception as error:
+                if self.mode not in {Mode.DISARMED, Mode.FAULT}:
+                    await self._fault(f"AS5048A read failed: {error}")
+                raise RuntimeError(f"AS5048A encoder failed: {error}") from error
 
             if self.mode in {Mode.SWING_UP, Mode.BALANCE}:
                 problem = self._health_problem(self._last_state, feedback)

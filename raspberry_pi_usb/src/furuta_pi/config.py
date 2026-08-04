@@ -12,11 +12,12 @@ from .control_math import Gains
 
 @dataclass(frozen=True, slots=True)
 class HardwareConfig:
-    encoder_a_bcm: int = 17
-    encoder_b_bcm: int = 27
     estop_bcm: int = 22
     gpio_chip: int = 0
-    pendulum_steps_per_revolution: int = 2048
+    encoder_spi_bus: int = 0
+    encoder_spi_device: int = 0
+    encoder_spi_max_speed_hz: int = 1_000_000
+    encoder_diagnostic_interval_reads: int = 20
     pendulum_direction: float = 1.0
     motor_turns_to_arm_radians: float = 6.283185307179586
     motor_direction: float = 1.0
@@ -101,11 +102,14 @@ def validate_config(config: AppConfig) -> None:
     hardware = config.hardware
     control = config.control
     odrive = config.odrive
-    pins = (hardware.encoder_a_bcm, hardware.encoder_b_bcm, hardware.estop_bcm)
-    if len(set(pins)) != len(pins) or any(pin < 0 for pin in pins):
-        raise ValueError("encoder and E-stop BCM GPIO numbers must be distinct and nonnegative")
-    if hardware.pendulum_steps_per_revolution <= 0:
-        raise ValueError("pendulum_steps_per_revolution must be positive")
+    if hardware.estop_bcm < 0:
+        raise ValueError("estop_bcm must be nonnegative")
+    if hardware.encoder_spi_bus < 0 or hardware.encoder_spi_device < 0:
+        raise ValueError("encoder SPI bus and device must be nonnegative")
+    if hardware.encoder_spi_max_speed_hz <= 0:
+        raise ValueError("encoder_spi_max_speed_hz must be positive")
+    if hardware.encoder_diagnostic_interval_reads <= 0:
+        raise ValueError("encoder_diagnostic_interval_reads must be positive")
     if hardware.pendulum_direction not in (-1.0, 1.0):
         raise ValueError("pendulum_direction must be -1.0 or 1.0")
     if hardware.motor_direction not in (-1.0, 1.0):

@@ -29,7 +29,9 @@ class ODriveUsb:
         try:
             import odrive
         except ImportError as error:
-            raise RuntimeError("ODrive package is unavailable; install this project first") from error
+            raise RuntimeError(
+                "ODrive package is unavailable; install this project first"
+            ) from error
 
         kwargs: dict[str, Any] = {"interfaces": ["usb"]}
         if config.serial_number:
