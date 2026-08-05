@@ -9,11 +9,44 @@ namespace config {
 // Teensy 4.1 hardware. Serial1 is pin 0 RX and pin 1 TX. The AS5048A is on
 // the default SPI bus: CS 10, MOSI 11, MISO 12, SCK 13.
 constexpr uint8_t kPendulumChipSelectPin = 10;
-constexpr uint8_t kEstopPin = 6;  // normally-closed switch pulls pin LOW
 constexpr uint32_t kEncoderSpiHz = 1000000;
 constexpr uint32_t kODriveUartBaud = 115200;
 constexpr uint8_t kODriveAxis = 0;
-constexpr float kMotorTurnsToArmRadians = furuta::kTwoPi;
+// Measured transmission: direct drive, one motor revolution per arm revolution.
+constexpr float kMotorRevolutionsPerArmRevolution = 1.0F;
+constexpr float kMotorTurnsToArmRadians =
+    furuta::kTwoPi / kMotorRevolutionsPerArmRevolution;
+// Recorded ODrive/power hardware values. These do not program the ODrive.
+// Confirmed conservative motor-current limits for commissioning.
+constexpr float kODriveConfiguredCurrentSoftMaxAmp = 10.0F;
+constexpr float kODriveConfiguredCurrentHardMaxAmp = 18.0F;
+constexpr float kODriveConfiguredVelocityLimitTurnsPerSecond = 1.5F;
+constexpr bool kODriveTorqueModeVelocityLimitEnabled = true;
+constexpr float kODriveTorqueModeVelocityGain = 0.167F;
+constexpr float kMotorTorqueConstantNmPerAmp = 0.0306296F;  // D5065 270 KV
+constexpr bool kODriveDcPositiveCurrentTripEnabled = true;
+constexpr bool kODriveDcNegativeCurrentTripEnabled = true;
+constexpr float kODriveDcMaxPositiveCurrentAmp = 25.0F;
+constexpr float kODriveDcMaxNegativeCurrentAmp = -5.0F;
+constexpr float kODriveUnderVoltageTripV = 19.8F;
+constexpr float kODriveOverVoltageTripV = 25.5F;
+constexpr float kDcBreakerCurrentAmp = 30.0F;
+constexpr uint8_t kBatterySeriesCells = 6;
+constexpr float kBatteryCapacityAh = 5.0F;
+constexpr float kBatteryDischargeRatingC = 100.0F;
+constexpr float kBatteryNominalVoltageV = 22.2F;
+constexpr float kBatteryFullChargeVoltageV = 25.2F;
+constexpr float kBrakeResistorOhm = 2.0F;
+constexpr float kBrakeResistorContinuousPowerW = 50.0F;
+constexpr bool kODriveBrakeResistorEnabled = true;
+// Global ODrive setting: 0 A sends all estimated regenerative current to the
+// brake resistor instead of intentionally returning it to the battery.
+constexpr float kODriveMaxRegenCurrentAmp = 0.0F;
+constexpr bool kODriveDcBusVoltageFeedbackEnabled = false;
+// Recorded for diagnostics; these exceed the 25.5 V trip and are unsuitable
+// for this 6S bus. They are inactive while voltage feedback remains disabled.
+constexpr float kODriveVoltageFeedbackRampStartV = 51.0F;
+constexpr float kODriveVoltageFeedbackRampEndV = 53.0F;
 constexpr float kMotorDirection = 1.0F;
 constexpr float kPendulumDirection = 1.0F;
 
@@ -28,13 +61,25 @@ constexpr uint32_t kTelemetryPeriodMs = 40;  // 25 Hz over USB
 constexpr uint32_t kEncoderDiagnosticsPeriodMs = 100;
 constexpr float kVelocityFilterHz = 35.0F;
 
-// Safety limits. Start below these values during first mechanical tests.
-constexpr float kTorqueLimitNm = 0.75F;
-constexpr float kSwingTorqueLimitNm = 0.35F;
-constexpr float kTuningTorqueLimitNm = 0.20F;
+// Conservative commissioning limits expressed as phase current first, then
+// converted to torque with the measured ODrive torque constant. These are
+// firmware command clamps, not a substitute for matching ODrive limits.
+constexpr float kCommissioningPhaseCurrentLimitAmp = 10.0F;
+constexpr float kSwingPhaseCurrentLimitAmp = 6.5F;
+constexpr float kTuningPhaseCurrentLimitAmp = 4.0F;
+constexpr float kTorqueLimitNm =
+    kCommissioningPhaseCurrentLimitAmp * kMotorTorqueConstantNmPerAmp;
+constexpr float kSwingTorqueLimitNm =
+    kSwingPhaseCurrentLimitAmp * kMotorTorqueConstantNmPerAmp;
+constexpr float kTuningTorqueLimitNm =
+    kTuningPhaseCurrentLimitAmp * kMotorTorqueConstantNmPerAmp;
 constexpr float kTorqueSlewNmPerSecond = 8.0F;
 constexpr float kArmAngleLimitRad = 2.4F;
-constexpr float kArmVelocityLimitRadS = 18.0F;
+// Fault early enough to leave coasting distance before the 2.4 rad soft limit.
+// This is still not a substitute for physical stops at or before +/- pi.
+constexpr float kArmTravelPredictionSeconds = 0.080F;
+constexpr float kArmVelocityLimitRadS =
+    kODriveConfiguredVelocityLimitTurnsPerSecond * furuta::kTwoPi;
 constexpr float kPendulumVelocityLimitRadS = 50.0F;
 constexpr float kZeroMaximumArmRateRadS = 0.20F;
 constexpr float kZeroMaximumPendulumRateRadS = 0.35F;
@@ -46,14 +91,56 @@ constexpr char kODriveWatchdogSeconds[] = "0.05";
 constexpr float kTuningStartAngleRad = 0.14F;
 constexpr float kTuningAbortAngleRad = 0.32F;
 constexpr float kTuningStartRateRadS = 1.0F;
-constexpr uint32_t kTuningKeepaliveTimeoutMs = 450;
 constexpr uint32_t kTuningMaximumRunMs = 8000;
-constexpr uint32_t kRunKeepaliveTimeoutMs = 750;
+// The focused browser sends this only while Space is physically held.
+constexpr uint32_t kBrowserDeadmanTimeoutMs = 450;
 
-// Measured plant values belong here, not in the web page.
-constexpr float kPendulumMassKg = 0.125F;
-constexpr float kPendulumComLengthM = 0.145F;
-constexpr float kPendulumInertiaKgM2 = 0.0035F;
+// Mechanism characterization. The 0.159 kg measured lump includes the rod,
+// printed block, horizontal shaft, collars, set screws, and one complete bearing
+// as an approximation for the two bearing assemblies. Everything except the rod
+// is provisionally placed on the pendulum pivot axis. The corrected assembled
+// upright yaw inertia below already allocates this hardware and must not be
+// combined with an additional point-mass m*r^2 approximation.
+constexpr float kPendulumMassKg = 0.159F;
+constexpr float kPendulumSmallOscillationPeriodS = 0.7327F;
+constexpr float kPendulumRodLengthM = 0.200F;
+constexpr float kPendulumRodDiameterM = 0.008F;
+constexpr float kPendulumRodStartOffsetM = 0.00635F;  // 1/4 inch
+constexpr float kPendulumRodDensityKgM3 = 8000.0F;    // nominal stainless
+constexpr float kPendulumRodMassKg = 0.08042F;
+constexpr float kPendulumNearPivotHardwareMassKg = 0.07858F;
+constexpr float kPendulumComLengthM = 0.05379F;
+constexpr float kPendulumInertiaKgM2 = 0.001141F;  // from COM and measured T
+constexpr float kPreviouslyReportedArmPivotRadiusM = 0.3215F;
+constexpr float kArmExtrusionLengthM = 0.140F;
+constexpr float kArmRigidAssemblyNominalMassKg = 0.1597F;
+// The 0.3215 m radius used the CAD's 0.280 m extrusion. Shortening only that
+// member to the real 0.140 m gives 0.3215 - 0.140 = 0.1815 m.
+constexpr float kArmPivotRadiusM = 0.1815F;
+constexpr float kPendulumFirstMomentKgM =
+    kPendulumMassKg * kPendulumComLengthM;
+constexpr float kArmPendulumCouplingKgM2 =
+    kArmPivotRadiusM * kPendulumFirstMomentKgM;
+// Generalized yaw inertia M(0,0) with the pendulum upright. Unlike m*r^2,
+// this uses each corrected STEP body's real radial position. It includes the
+// real 200 mm rod, allowances for collars/encoder/screws, and rotor inertia.
+constexpr float kUprightArmAxisInertiaKgM2 = 0.00561F;
+constexpr float kUprightArmAxisInertiaMinimumKgM2 = 0.00510F;
+constexpr float kUprightArmAxisInertiaMaximumKgM2 = 0.00620F;
+constexpr float kArmViscousDampingNmPerRadS = 0.0F;
+constexpr float kPendulumViscousDampingNmPerRadS = 0.0F;
+constexpr float kTransmissionEfficiency = 1.0F;  // direct-drive starting value
+
+// Set true only after the motor-disabled coupling-sign procedure in the README
+// confirms kPendulumDirection. This is the final compile-time tuning interlock.
+constexpr bool kControlDirectionVerified = false;
+constexpr bool kMechanismSetupComplete = kControlDirectionVerified;
+// Upright trials must be repeatably stable and their logs reviewed before this
+// separate interlock is enabled. It prevents unvalidated automatic swing-up.
+constexpr bool kAutomaticSwingUpEnabled = false;
+
+// Swing-up remains independently disabled. These empirical values require
+// nonlinear simulation and guarded hardware validation after upright control.
 constexpr float kSwingEnergyGain = 7.0F;
 constexpr float kSwingArmDamping = 0.08F;
 constexpr float kSwingArmCentering = 0.10F;  // Nm per arm radian
@@ -63,12 +150,41 @@ constexpr float kCatchAngleRad = 0.22F;
 constexpr float kDropAngleRad = 0.45F;
 constexpr float kCatchPendulumVelocityRadS = 3.0F;
 
-// Starting values only. These are not universal gains.
-constexpr furuta::Gains kDefaultBalanceGains{1.8F, -18.0F, 1.25F, -2.2F};
-constexpr furuta::Gains kGainAbsoluteLimits{8.0F, 60.0F, 8.0F, 12.0F};
+// Discrete LQR at 200 Hz for x=[arm, pendulum, arm_rate, pendulum_rate], with
+// positive pendulum chosen so a positive arm acceleration initially produces a
+// positive pendulum acceleration. See BALANCING_REVIEW.md for A/B/Q/R.
+constexpr furuta::Gains kModelBalanceGains{-0.09140F, 1.44432F, -0.06921F,
+                                            0.13886F};
+constexpr float kFirstTrialGainScale = 0.65F;
+constexpr float kMinimumRuntimeGainScale = 0.50F;
+constexpr float kMaximumRuntimeGainScale = 1.50F;
+constexpr furuta::Gains kDefaultBalanceGains{
+    kModelBalanceGains.arm_angle * kFirstTrialGainScale,
+    kModelBalanceGains.pendulum_angle * kFirstTrialGainScale,
+    kModelBalanceGains.arm_velocity * kFirstTrialGainScale,
+    kModelBalanceGains.pendulum_velocity * kFirstTrialGainScale};
+// Redundant absolute bounds sit outside the enforced 50-150% same-sign model
+// profile envelope and reject arbitrary high feedback.
+constexpr furuta::Gains kGainAbsoluteLimits{0.16F, 2.50F, 0.13F, 0.25F};
 
 static_assert(kMotorDirection == 1.0F || kMotorDirection == -1.0F,
               "kMotorDirection must be exactly 1 or -1");
+static_assert(kMotorRevolutionsPerArmRevolution > 0.0F,
+              "motor-to-arm ratio must be positive");
+static_assert(kArmAngleLimitRad < furuta::kPi,
+              "software arm limit must remain inside +/-180 degrees");
+static_assert(kUprightArmAxisInertiaKgM2 * kPendulumInertiaKgM2 >
+                  kArmPendulumCouplingKgM2 * kArmPendulumCouplingKgM2,
+              "linearized inertia matrix must be positive definite");
+static_assert(!kAutomaticSwingUpEnabled || kMechanismSetupComplete,
+              "automatic swing-up requires completed upright setup");
+static_assert(kCommissioningPhaseCurrentLimitAmp <
+                  kODriveConfiguredCurrentHardMaxAmp,
+              "firmware current envelope must stay below ODrive hard max");
+static_assert(kTuningPhaseCurrentLimitAmp <= kSwingPhaseCurrentLimitAmp &&
+                  kSwingPhaseCurrentLimitAmp <=
+                      kCommissioningPhaseCurrentLimitAmp,
+              "current limit tiers must be ordered");
 static_assert(kPendulumDirection == 1.0F || kPendulumDirection == -1.0F,
               "kPendulumDirection must be exactly 1 or -1");
 static_assert(kUartResponseTimeoutUs < kControlPeriodUs,

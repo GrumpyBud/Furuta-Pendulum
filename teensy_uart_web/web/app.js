@@ -12,19 +12,19 @@
     rawCount: $("rawCount"), agcValue: $("agcValue"), parityErrors: $("parityErrors"), protocolErrors: $("protocolErrors"), loopTiming: $("loopTiming"),
     torqueValue: $("torqueValue"), odriveErrors: $("odriveErrors"), gainSummary: $("gainSummary"),
     readinessRing: $("readinessRing"), readinessTitle: $("readinessTitle"), readinessText: $("readinessText"),
-    stateChart: $("stateChart"), eventLog: $("eventLog"), downloadButton: $("downloadButton"), clearLogButton: $("clearLogButton"), toast: $("toast")
+    spaceStatus: $("spaceStatus"), stateChart: $("stateChart"), eventLog: $("eventLog"), downloadButton: $("downloadButton"), clearLogButton: $("clearLogButton"), toast: $("toast")
   };
 
   const modeDescriptions = {
     DISARMED: "Motor output is disabled.", TEST: "Sensor test only; motor output is disabled.",
     SWING_UP: "Automatic swing-up is active.", BALANCE: "Upright balance control is active.",
-    TUNING: "Low-torque hold-to-test is active.", FAULT: "A safety check stopped the controller.", OFFLINE: "Connect the Teensy to begin."
+    TUNING: "Low-torque Spacebar dead-man test is active.", FAULT: "A safety check stopped the controller.", OFFLINE: "Connect the Teensy to begin."
   };
-  const defaults = [1.8, -18, 1.25, -2.2];
+  const modelGains = [-0.0914, 1.44432, -0.06921, 0.13886];
   const state = {
     port: null, reader: null, writer: null, connected: false, connecting: false, lineBuffer: "",
-    sample: null, history: [], telemetryRows: [], events: [], toastTimer: null, holdTimer: null,
-    holding: false, demoTimer: null, lastMessageAt: 0
+    sample: null, history: [], telemetryRows: [], events: [], toastTimer: null, deadmanTimer: null,
+    spaceHeld: false, demoTimer: null, lastMessageAt: 0
   };
 
   function setConnection(kind, text) {
@@ -66,14 +66,15 @@
   }
 
   function parseTelemetry(parts, original) {
-    if (parts.length < 24) return;
+    if (parts.length < 26) return;
     state.sample = {
       ms: parseNumber(parts[1]), mode: parts[2], arm: parseNumber(parts[3]), pendulum: parseNumber(parts[4]),
       armRate: parseNumber(parts[5]), pendulumRate: parseNumber(parts[6]), torque: parseNumber(parts[7]),
-      estop: parts[8] === "1", odrive: parts[9] === "1", encoder: parts[10], zero: parts[11] === "1",
+      deadman: parts[8] === "1", odrive: parts[9] === "1", encoder: parts[10], zero: parts[11] === "1",
       count: parseNumber(parts[12]), agc: parseNumber(parts[13]), parity: parseNumber(parts[14]), protocol: parseNumber(parts[15]),
       gains: parts.slice(16, 20).map(parseNumber), odriveErrors: parseNumber(parts[20]),
-      loopUs: parseNumber(parts[21]), maximumLoopUs: parseNumber(parts[22]), fault: parts.slice(23).join(",")
+      loopUs: parseNumber(parts[21]), maximumLoopUs: parseNumber(parts[22]), setup: parts[23] === "1",
+      automatic: parts[24] === "1", fault: parts.slice(25).join(",")
     };
     state.lastMessageAt = Date.now();
     state.telemetryRows.push(original);
@@ -151,10 +152,8 @@
   }
 
   async function disconnect() {
-    if (state.writer && state.sample && ["SWING_UP", "BALANCE", "TUNING"].includes(state.sample.mode)) {
-      await send("disarm");
-    }
-    stopTuningHold(true);
+    if (state.writer) await send("deadman_release");
+    releaseSpaceDeadman(true);
     state.connected = false;
     try { await state.reader?.cancel(); } catch (_) { /* already closed */ }
     if (state.writer) { try { state.writer.releaseLock(); } catch (_) { /* no-op */ } }
@@ -182,7 +181,8 @@
     return {
       connection: state.connected && sample !== null && Date.now() - state.lastMessageAt < 1000,
       encoder: Boolean(sample && sample.encoder === "OK"), odrive: Boolean(sample && sample.odrive && sample.odriveErrors === 0),
-      estop: Boolean(sample && sample.estop), zero: Boolean(sample && sample.zero)
+      deadman: Boolean(sample && sample.deadman && spaceControlIsActive()),
+      mechanism: Boolean(sample && sample.setup), zero: Boolean(sample && sample.zero)
     };
   }
 
@@ -202,7 +202,8 @@
     updateCheck("checkConnection", ready.connection, "CONNECT");
     updateCheck("checkEncoder", ready.encoder, sample?.encoder || "WAITING");
     updateCheck("checkOdrive", ready.odrive, sample?.odriveErrors ? "DRIVE ERROR" : "WAITING");
-    updateCheck("checkEstop", ready.estop, "OPEN");
+    updateCheck("checkDeadman", ready.deadman, "HOLD SPACE");
+    updateCheck("checkMechanism", ready.mechanism, "VERIFY SIGN");
     updateCheck("checkZero", ready.zero, "NOT SAVED");
 
     const mode = sample?.mode || "OFFLINE";
@@ -214,15 +215,18 @@
     elements.applyGainsButton.disabled = !(state.connected && sample && safeMode);
 
     const tuningPositionReady = Boolean(sample && Math.abs(sample.pendulum) < 0.14 && Math.abs(sample.pendulumRate) < 1);
-    const allReady = readyCount === 5;
+    const allReady = readyCount === 6;
     elements.tuneHoldButton.disabled = !(allReady && safeMode && tuningPositionReady);
-    elements.tuneHint.textContent = !allReady ? "Complete every setup check." : !safeMode ? "Disarm before tuning." : !tuningPositionReady ? "Hold the pendulum nearly upright and motionless." : "Ready—keep the area clear and hold only while you intend motion.";
-    elements.armButton.disabled = !(allReady && mode === "DISARMED");
+    elements.tuneHint.textContent = !allReady ? "Complete every setup check, including holding Space." : !safeMode ? "Disarm before tuning." : !tuningPositionReady ? "Hold the pendulum nearly upright and motionless." : "Ready—keep Space held and click to begin.";
+    elements.armButton.disabled = !(allReady && mode === "DISARMED" && sample.automatic);
     elements.disarmButton.disabled = !(state.connected && sample && (activeMode || mode === "FAULT" || mode === "TEST"));
 
-    elements.readinessRing.textContent = `${readyCount}/5`;
-    elements.readinessTitle.textContent = allReady ? "Ready to arm" : "Not ready";
-    elements.readinessText.textContent = allReady ? "All firmware-reported setup checks pass." : "Complete the setup checklist.";
+    elements.readinessRing.textContent = `${readyCount}/6`;
+    elements.readinessTitle.textContent = allReady && sample?.automatic ? "Ready to arm" : allReady ? "Swing-up locked" : "Not ready";
+    elements.readinessText.textContent = allReady && sample?.automatic ? "Hardware checks pass and automatic swing-up is deliberately enabled." : allReady ? "Finish and review stable upright trials before enabling automatic swing-up in firmware." : "Complete the setup checklist and hold Space.";
+    elements.spaceStatus.classList.toggle("holding", spaceControlIsActive());
+    elements.spaceStatus.querySelector("strong").textContent = spaceControlIsActive() ? "SPACE HELD" : "HOLD SPACE";
+    elements.spaceStatus.querySelector("small").textContent = spaceControlIsActive() ? "Release to stop motor output" : "Focused-tab dead-man control";
     elements.globalAlert.classList.toggle("hidden", mode !== "FAULT");
     if (mode === "FAULT") elements.globalAlert.textContent = `Stopped by safety fault: ${sample.fault === "-" ? "see event log" : sample.fault}. Correct the cause, then press DISARM / STOP to acknowledge it; zero must be saved again.`;
 
@@ -266,7 +270,7 @@
 
   function applyPreset(scale) {
     [elements.gainArm, elements.gainPendulum, elements.gainArmRate, elements.gainPendulumRate].forEach((input, index) => {
-      input.value = (defaults[index] * scale).toFixed(index === 1 ? 1 : 2);
+      input.value = (modelGains[index] * scale).toFixed(5);
     });
     document.querySelectorAll(".preset").forEach((button) => button.classList.toggle("selected", Number(button.dataset.scale) === scale));
     elements.gainFeedback.textContent = "Review the four values, then apply while disarmed.";
@@ -275,31 +279,56 @@
   async function applyGains() {
     const values = [elements.gainArm, elements.gainPendulum, elements.gainArmRate, elements.gainPendulumRate].map((input) => Number(input.value));
     if (!values.every(Number.isFinite)) { toast("Every gain must be a number"); return; }
-    const accepted = values[0] >= 0 && values[0] <= 8 && values[1] >= -60 && values[1] <= 0 && values[2] >= 0 && values[2] <= 8 && values[3] >= -12 && values[3] <= 0;
+    const limits = [0.16, 2.5, 0.13, 0.25];
+    const accepted = values.every((value, index) => {
+      const scale = value / modelGains[index];
+      return Math.abs(value) <= limits[index] && scale >= 0.5 && scale <= 1.5;
+    });
     if (!accepted) { toast("A gain is outside the firmware-safe range"); return; }
     if (await send(`gains ${values.join(" ")}`)) elements.gainFeedback.textContent = "Values sent; waiting for firmware validation…";
   }
 
-  async function startTuningHold(event) {
-    if (elements.tuneHoldButton.disabled || state.holding) return;
-    event.preventDefault();
-    state.holding = true;
-    elements.tuneHoldButton.classList.add("holding");
-    elements.tuneHoldButton.setPointerCapture?.(event.pointerId);
-    if (!(await send("tune_start CONFIRM"))) { stopTuningHold(false); return; }
-    state.holdTimer = setInterval(() => send("tune_keepalive"), 150);
+  function spaceControlIsActive() {
+    return state.spaceHeld && document.hasFocus() && !document.hidden;
   }
 
-  function stopTuningHold(skipCommand = false) {
-    if (!state.holding && !state.holdTimer) return;
-    state.holding = false;
-    elements.tuneHoldButton.classList.remove("holding");
-    clearInterval(state.holdTimer); state.holdTimer = null;
-    if (!skipCommand) send("disarm");
+  function isTextEntry(target) {
+    return target instanceof HTMLElement &&
+      (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName));
+  }
+
+  function beginSpaceDeadman(event) {
+    if (event.code !== "Space" || isTextEntry(event.target)) return;
+    event.preventDefault();
+    if (event.repeat || state.spaceHeld) return;
+    if (!state.connected) { toast("Connect the Teensy before using the Space control"); return; }
+    state.spaceHeld = true;
+    send("deadman_hold");
+    clearInterval(state.deadmanTimer);
+    state.deadmanTimer = setInterval(() => {
+      if (spaceControlIsActive()) send("deadman_hold");
+      else releaseSpaceDeadman(false);
+    }, 150);
+    render();
+  }
+
+  function releaseSpaceDeadman(skipCommand = false) {
+    const wasHeld = state.spaceHeld || state.deadmanTimer !== null;
+    state.spaceHeld = false;
+    clearInterval(state.deadmanTimer);
+    state.deadmanTimer = null;
+    if (wasHeld && !skipCommand && state.connected) send("deadman_release");
+    render();
+  }
+
+  async function startTuningTrial() {
+    if (elements.tuneHoldButton.disabled || !spaceControlIsActive()) return;
+    if (!(await send("deadman_hold"))) return;
+    await send("tune_start CONFIRM");
   }
 
   function downloadCsv() {
-    const header = "record,time_ms,mode,arm_rad,pendulum_rad,arm_rate_rad_s,pendulum_rate_rad_s,torque_nm,estop_closed,odrive_online,encoder_status,zero_valid,encoder_count,agc,parity_errors,protocol_errors,k_arm,k_pendulum,k_arm_rate,k_pendulum_rate,odrive_errors,loop_us,max_loop_us,fault";
+    const header = "record,time_ms,mode,arm_rad,pendulum_rad,arm_rate_rad_s,pendulum_rate_rad_s,torque_nm,browser_deadman_held,odrive_online,encoder_status,zero_valid,encoder_count,agc,parity_errors,protocol_errors,k_arm,k_pendulum,k_arm_rate,k_pendulum_rate,odrive_errors,loop_us,max_loop_us,mechanism_setup_complete,automatic_swing_up_enabled,fault";
     const blob = new Blob([[header, ...state.telemetryRows].join("\n")], { type: "text/csv" });
     const link = document.createElement("a"); link.href = URL.createObjectURL(blob);
     link.download = `furuta-session-${new Date().toISOString().replaceAll(":", "-")}.csv`; link.click();
@@ -311,7 +340,7 @@
     let tick = 0;
     state.demoTimer = setInterval(() => {
       tick += 1; const pendulum = -Math.PI + 0.05 * Math.sin(tick / 12), arm = 0.15 * Math.sin(tick / 30);
-      processLine(`@T,${tick * 40},TEST,${arm},${pendulum},0.02,0.08,0,1,1,OK,1,8192,118,0,0,1.8,-18,1.25,-2.2,0,2100,2900,-`);
+      processLine(`@T,${tick * 40},TEST,${arm},${pendulum},0.02,0.08,0,1,1,OK,1,8192,118,0,0,-0.05941,0.93881,-0.04498,0.09026,0,2100,2900,0,0,-`);
     }, 40);
     elements.connectButton.textContent = "Demo active"; elements.connectButton.disabled = true;
     logEvent("Demonstration mode started; no commands reach hardware.");
@@ -331,22 +360,24 @@
   elements.zeroButton.addEventListener("click", () => send("zero"));
   elements.testModeButton.addEventListener("click", () => send(state.sample?.mode === "TEST" ? "test_stop" : "test_start"));
   elements.applyGainsButton.addEventListener("click", applyGains);
-  elements.tuneHoldButton.addEventListener("pointerdown", startTuningHold);
-  ["pointerup", "pointercancel", "lostpointercapture", "pointerleave"].forEach((name) => elements.tuneHoldButton.addEventListener(name, () => stopTuningHold(false)));
-  elements.armButton.addEventListener("click", () => {
-    const accepted = window.confirm("Automatic swing-up starts immediately. Is the guard closed, motion envelope clear, and hard-wired motor-power E-stop reachable?");
-    if (accepted) send("arm CONFIRM");
+  elements.tuneHoldButton.addEventListener("click", startTuningTrial);
+  elements.armButton.addEventListener("click", async () => {
+    if (!spaceControlIsActive()) { toast("Hold Space in this tab before arming"); return; }
+    if (await send("deadman_hold") && spaceControlIsActive()) send("arm CONFIRM");
   });
   elements.disarmButton.addEventListener("click", () => send("disarm"));
   elements.downloadButton.addEventListener("click", downloadCsv);
   elements.clearLogButton.addEventListener("click", () => { elements.eventLog.replaceChildren(); state.events = []; state.telemetryRows = []; });
-  window.addEventListener("resize", drawChart); window.addEventListener("blur", () => stopTuningHold(false));
-  document.addEventListener("visibilitychange", () => { if (document.hidden) stopTuningHold(false); });
+  document.addEventListener("keydown", beginSpaceDeadman);
+  document.addEventListener("keyup", (event) => {
+    if (event.code !== "Space") return;
+    if (state.spaceHeld) event.preventDefault();
+    releaseSpaceDeadman(false);
+  });
+  window.addEventListener("resize", drawChart);
+  window.addEventListener("blur", () => releaseSpaceDeadman(false));
+  document.addEventListener("visibilitychange", () => { if (document.hidden) releaseSpaceDeadman(false); });
   setInterval(() => { if (state.connected && state.lastMessageAt && Date.now() - state.lastMessageAt > 1000) render(); }, 500);
-  setInterval(() => {
-    if (state.connected && state.sample && ["SWING_UP", "BALANCE"].includes(state.sample.mode)) send("run_keepalive");
-  }, 200);
-
   if (new URLSearchParams(location.search).get("demo") === "1") startDemo();
   else setConnection("offline", "Not connected");
   const initial = location.hash.slice(1);

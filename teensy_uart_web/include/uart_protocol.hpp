@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
@@ -48,7 +49,8 @@ inline bool parseFeedback(char* payload, float& position, float& velocity) {
   velocity = std::strtof(end, &velocity_end);
   if (velocity_end == end) return false;
   while (*velocity_end == ' ') ++velocity_end;
-  return *velocity_end == '\0';
+  return *velocity_end == '\0' && std::isfinite(position) &&
+         std::isfinite(velocity);
 }
 
 }  // namespace odrive_ascii

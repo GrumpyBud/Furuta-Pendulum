@@ -33,6 +33,37 @@ void test_slew_limit_bounds_both_directions() {
                            furuta::slewLimit(0.0F, 0.04F, 0.1F));
 }
 
+void test_keepalive_freshness_boundaries_and_timer_wrap() {
+  TEST_ASSERT_FALSE(furuta::keepaliveFresh(false, 1000U, 900U, 450U));
+  TEST_ASSERT_TRUE(furuta::keepaliveFresh(true, 1350U, 900U, 450U));
+  TEST_ASSERT_FALSE(furuta::keepaliveFresh(true, 1351U, 900U, 450U));
+  TEST_ASSERT_TRUE(furuta::keepaliveFresh(true, 25U, UINT32_MAX - 24U, 50U));
+  TEST_ASSERT_FALSE(furuta::keepaliveFresh(true, 26U, UINT32_MAX - 24U, 50U));
+}
+
+void test_projected_travel_counts_only_outward_motion() {
+  TEST_ASSERT_FLOAT_WITHIN(
+      1.0e-6F, 1.4F, furuta::projectedAbsoluteTravel(1.0F, 2.0F, 0.2F));
+  TEST_ASSERT_FLOAT_WITHIN(
+      1.0e-6F, 1.0F, furuta::projectedAbsoluteTravel(1.0F, -2.0F, 0.2F));
+  TEST_ASSERT_FLOAT_WITHIN(
+      1.0e-6F, 1.4F, furuta::projectedAbsoluteTravel(-1.0F, -2.0F, 0.2F));
+}
+
+void test_gain_limits_follow_the_reviewed_model_profile() {
+  const furuta::Gains limits{0.16F, 2.5F, 0.13F, 0.25F};
+  const furuta::Gains model{-0.0914F, 1.4443F, -0.0692F, 0.1389F};
+  TEST_ASSERT_TRUE(furuta::gainsWithinAbsoluteLimits(model, limits));
+  TEST_ASSERT_TRUE(furuta::gainsWithinScaledProfile(
+      {-0.05941F, 0.93881F, -0.04498F, 0.09026F}, model, 0.5F, 1.5F));
+  TEST_ASSERT_FALSE(furuta::gainsWithinScaledProfile(
+      {0.0914F, -1.4443F, 0.0692F, -0.1389F}, model, 0.5F, 1.5F));
+  TEST_ASSERT_FALSE(furuta::gainsWithinScaledProfile(
+      {-0.04F, 1.4443F, -0.0692F, 0.1389F}, model, 0.5F, 1.5F));
+  TEST_ASSERT_FALSE(furuta::gainsWithinAbsoluteLimits(
+      {-0.2F, 1.4443F, -0.0692F, 0.1389F}, limits));
+}
+
 void test_as5048a_command_and_response_parity() {
   const uint16_t command =
       as5048a::makeReadCommand(as5048a::kRegisterAngle);
@@ -42,6 +73,22 @@ void test_as5048a_command_and_response_parity() {
   TEST_ASSERT_TRUE(response.parity_ok);
   TEST_ASSERT_FALSE(response.error_flag);
   TEST_ASSERT_EQUAL_UINT16(0x1234U, response.data);
+}
+
+void test_as5048a_diagnostics_register_and_flags() {
+  TEST_ASSERT_EQUAL_HEX16(
+      as5048a::withEvenParity(as5048a::kReadFlag | 0x3FFDU),
+      as5048a::makeReadCommand(as5048a::kRegisterDiagnostics));
+  const auto weak = as5048a::decodeDiagnostics(
+      static_cast<uint16_t>((1U << 8) | (1U << 10) | 200U));
+  TEST_ASSERT_EQUAL_UINT8(200U, weak.agc);
+  TEST_ASSERT_TRUE(weak.offset_compensation_finished);
+  TEST_ASSERT_TRUE(weak.magnetic_field_too_weak);
+  TEST_ASSERT_FALSE(weak.magnetic_field_too_strong);
+  const auto strong = as5048a::decodeDiagnostics(
+      static_cast<uint16_t>((1U << 8) | (1U << 11) | 12U));
+  TEST_ASSERT_FALSE(strong.magnetic_field_too_weak);
+  TEST_ASSERT_TRUE(strong.magnetic_field_too_strong);
 }
 
 void test_ascii_checksum_matches_odrive_documentation() {
@@ -69,14 +116,30 @@ void test_ascii_checksum_rejects_corruption() {
   TEST_ASSERT_FALSE(odrive_ascii::validateAndStripChecksum(line));
 }
 
+void test_feedback_parser_rejects_non_finite_values() {
+  char nan_payload[] = "nan 0.0";
+  char inf_payload[] = "0.0 inf";
+  float position = 0.0F;
+  float velocity = 0.0F;
+  TEST_ASSERT_FALSE(
+      odrive_ascii::parseFeedback(nan_payload, position, velocity));
+  TEST_ASSERT_FALSE(
+      odrive_ascii::parseFeedback(inf_payload, position, velocity));
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_wrap_angle_range_and_boundaries);
   RUN_TEST(test_balance_torque_uses_documented_state_order);
   RUN_TEST(test_slew_limit_bounds_both_directions);
+  RUN_TEST(test_keepalive_freshness_boundaries_and_timer_wrap);
+  RUN_TEST(test_projected_travel_counts_only_outward_motion);
+  RUN_TEST(test_gain_limits_follow_the_reviewed_model_profile);
   RUN_TEST(test_as5048a_command_and_response_parity);
+  RUN_TEST(test_as5048a_diagnostics_register_and_flags);
   RUN_TEST(test_ascii_checksum_matches_odrive_documentation);
   RUN_TEST(test_ascii_response_validation_and_feedback_parse);
   RUN_TEST(test_ascii_checksum_rejects_corruption);
+  RUN_TEST(test_feedback_parser_rejects_non_finite_values);
   return UNITY_END();
 }

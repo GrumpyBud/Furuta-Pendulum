@@ -10,7 +10,7 @@ constexpr uint16_t kReadFlag = 1U << 14;
 constexpr uint16_t kErrorFlag = 1U << 14;
 constexpr uint16_t kParityFlag = 1U << 15;
 constexpr uint16_t kRegisterClearError = 0x0001U;
-constexpr uint16_t kRegisterDiagnostics = 0x3FFCU;
+constexpr uint16_t kRegisterDiagnostics = 0x3FFDU;
 constexpr uint16_t kRegisterAngle = 0x3FFFU;
 constexpr uint16_t kNopCommand = 0x0000U;
 
