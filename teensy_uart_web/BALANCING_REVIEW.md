@@ -150,7 +150,7 @@ tau = tau_energy - k_d*theta_dot - k_c*theta
 
 Because the continuous energy term is exactly zero when the pendulum is perfectly motionless at the bottom, the energy phase begins with one small positive bounded arm nudge, then immediately hands control to the energy law. This removes the mathematical deadlock without relying on encoder noise or an opposing kick that could remove the energy just added.
 
-Before that energy phase, the controller performs two explicit preparation states. `CENTERING` uses a cascaded position-to-velocity controller to return the arm to its saved zero, with desired speed limited to `0.45 rad/s` and torque limited to `0.300 N m` (about `9.79 A` phase-current equivalent). The velocity-loop gain requests that breakaway torque from rest instead of the ineffective `0.027 N m` produced by the first automatic-centering revision. `SETTLING` holds the same center controller and requires the arm to remain within `0.06 rad` at less than `0.15 rad/s`, and the pendulum to remain within `0.10 rad` of hanging at less than `0.30 rad/s`, continuously for `1.2 s`. Centering and settling each have independent 12-second timeouts. The preparation remains speed-limited and cannot silently consume the separate 20-second energy/balance trial window.
+Before that energy phase, the controller performs two explicit preparation states using ODrive's native position loop. `CENTERING` selects `POSITION_CONTROL` plus `POS_FILTER`, seeds the setpoint at the measured position, and then targets the saved arm zero. The configuration is read back before motion: filter bandwidth `20 1/s`, velocity limit `0.5 turn/s`, position gain `20`, velocity gain `0.167`, velocity-integrator gain `0.333`, velocity limiting enabled, and command torque limited to `0.300 N m`. `SETTLING` keeps issuing that same saved-zero position command so the controller never releases the target while waiting. The arm must remain within `0.020 rad` at less than `0.050 rad/s`, and the pendulum within `0.040 rad` of hanging at less than `0.120 rad/s`, for `2.5 s` continuously. Any excursion resets the timer. Centering has a 12-second timeout and settling has a 20-second timeout. Once settled, the code changes input mode to passthrough, sends zero torque, and reads back torque mode `1` and input mode `1`; swing-up cannot begin if that handoff fails.
 
 The guarded request still has a broad pre-arm envelope: the stopped arm must be within `1.75 rad` of saved center and the pendulum generally downward within `0.80 rad`; rate gates reject an already fast-moving mechanism. Guarded swing-up and its balance catch have a final 10 A-equivalent `0.3063 N m` clamp matching the configured ODrive soft limit, while the user-selectable swing ceiling stops at `0.300 N m`. Upright tuning remains independently limited to 4 A-equivalent `0.1225 N m`. Runtime energy gain, arm damping, arm centring, startup nudge, and swing torque ceiling are nonnegative and bounded in both the browser and firmware. All preparation and active phases require the focused Spacebar dead-man. Unrestricted automatic mode remains disabled.
 
@@ -166,7 +166,7 @@ commissioning clamps are now defined in current units and converted to torque:
 `10.0 A` overall and swing-up (including guarded trials), and `4.0 A` for
 upright tuning. The resulting torque limits are approximately `0.3063` and
 `0.1225 N m`, respectively. Automatic centering and the user-selectable swing
-ceiling stop at `0.300 N m`; centering also has a `0.45 rad/s` speed ceiling.
+ceiling stop at `0.300 N m`; centering also has a `0.5 turn/s` speed ceiling.
 
 ## Timing and transport review
 
@@ -211,7 +211,7 @@ Active control faults on:
 - predicted arm travel stopping margin, arm speed, or pendulum speed limit;
 - repeated control deadline misses;
 - upright-tuning twenty-second timeout or exit from its narrow region;
-- automatic-centering or pendulum-settling twelve-second timeout;
+- automatic-centering 12-second or strict-settling 20-second timeout;
 - guarded swing-up twenty-second timeout.
 
 Boot requests zero torque/idle and starts disarmed. Recoverable motion-envelope,

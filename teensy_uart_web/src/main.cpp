@@ -112,11 +112,44 @@ class ODriveUart {
     return true;
   }
 
+  bool readFloat(const char* property, float& value,
+                 const uint32_t timeout_us =
+                     config::kUartResponseTimeoutUs) {
+    char command[80]{};
+    const int written = std::snprintf(command, sizeof(command), "r %s",
+                                      property);
+    if (written <= 0 || static_cast<size_t>(written) >= sizeof(command)) {
+      return false;
+    }
+    char response[48]{};
+    if (!request(command, response, sizeof(response), timeout_us)) return false;
+    char* end = nullptr;
+    value = std::strtof(response, &end);
+    while (end != nullptr && *end == ' ') ++end;
+    return end != response && end != nullptr && *end == '\0' &&
+           std::isfinite(value);
+  }
+
   bool setTorque(const float torque_nm) {
     char command[40]{};
     const int written =
         std::snprintf(command, sizeof(command), "c %u %.6f",
                       config::kODriveAxis, static_cast<double>(torque_nm));
+    if (written <= 0 || static_cast<size_t>(written) >= sizeof(command)) {
+      return false;
+    }
+    return send(command);
+  }
+
+  bool setPosition(const float position_turns,
+                   const float velocity_limit_turns_s,
+                   const float torque_limit_nm) {
+    char command[64]{};
+    const int written = std::snprintf(
+        command, sizeof(command), "q %u %.7f %.6f %.6f",
+        config::kODriveAxis, static_cast<double>(position_turns),
+        static_cast<double>(velocity_limit_turns_s),
+        static_cast<double>(torque_limit_nm));
     if (written <= 0 || static_cast<size_t>(written) >= sizeof(command)) {
       return false;
     }
@@ -131,6 +164,14 @@ class ODriveUart {
       return false;
     }
     return send(command);
+  }
+
+  bool writeFloatProperty(const char* property, const float value) {
+    char text[24]{};
+    const int written = std::snprintf(text, sizeof(text), "%.7g",
+                                      static_cast<double>(value));
+    return written > 0 && static_cast<size_t>(written) < sizeof(text) &&
+           writeProperty(property, text);
   }
 
   bool clearErrors() { return send("sc"); }
@@ -232,6 +273,7 @@ uint32_t tuning_started_ms = 0;
 uint32_t run_started_ms = 0;
 uint32_t swing_phase_started_ms = 0;
 uint32_t swing_settle_ready_ms = 0;
+uint32_t last_position_command_ms = 0;
 uint32_t browser_deadman_ms = 0;
 uint32_t last_state_sample_us = 0;
 uint32_t consecutive_encoder_errors = 0;
@@ -248,6 +290,9 @@ char fault_reason[112]{};
 char odrive_arm_failure[112]{};
 char command_buffer[128]{};
 size_t command_length = 0;
+
+bool commandODriveCenter(uint32_t now_ms);
+bool switchODriveToTorqueControl();
 
 bool isActive() {
   return mode == Mode::kSwingCentering || mode == Mode::kSwingSettling ||
@@ -483,11 +528,12 @@ void runControlTick() {
       enterFault("automatic arm centering time limit reached");
       return;
     }
-    requested_torque = furuta::centerArmTorque(
-        state, config::kSwingCenterPositionGainPerSecond,
-        config::kSwingCenterMaximumVelocityRadS,
-        config::kSwingCenterVelocityGainNmPerRadS,
-        config::kSwingCenteringTorqueLimitNm);
+    if (!commandODriveCenter(now_ms)) {
+      enterFault("ODrive filtered-position command failed",
+                 FaultReferencePolicy::kInvalidate);
+      return;
+    }
+    commanded_torque_nm = 0.0F;
     if (std::fabs(state.arm_angle_rad) <
             config::kSwingCenterAngleToleranceRad &&
         std::fabs(state.arm_velocity_rad_s) <
@@ -497,35 +543,41 @@ void runControlTick() {
       swing_settle_ready_ms = 0U;
       event("INFO", "SWING_PHASE", "arm centered; waiting for pendulum to settle");
     }
+    return;
   } else if (mode == Mode::kSwingSettling) {
     if (now_ms - swing_phase_started_ms > config::kSwingSettleTimeoutMs) {
       enterFault("pendulum settling time limit reached");
       return;
     }
-    requested_torque = furuta::centerArmTorque(
-        state, config::kSwingCenterPositionGainPerSecond,
-        config::kSwingCenterMaximumVelocityRadS,
-        config::kSwingCenterVelocityGainNmPerRadS,
-        config::kSwingCenteringTorqueLimitNm);
-    const bool settled =
-        furuta::downAngleError(state.pendulum_angle_rad) <
-            config::kSwingSettleDownToleranceRad &&
-        std::fabs(state.pendulum_velocity_rad_s) <
-            config::kSwingSettlePendulumRateRadS &&
-        std::fabs(state.arm_angle_rad) <
-            config::kSwingCenterAngleToleranceRad &&
-        std::fabs(state.arm_velocity_rad_s) <
-            config::kSwingCenterRateToleranceRadS;
+    if (!commandODriveCenter(now_ms)) {
+      enterFault("ODrive position-hold command failed",
+                 FaultReferencePolicy::kInvalidate);
+      return;
+    }
+    commanded_torque_nm = 0.0F;
+    const bool settled = furuta::swingPreparationSettled(
+        state, config::kSwingCenterAngleToleranceRad,
+        config::kSwingCenterRateToleranceRadS,
+        config::kSwingSettleDownToleranceRad,
+        config::kSwingSettlePendulumRateRadS);
     if (!settled) {
       swing_settle_ready_ms = 0U;
     } else if (swing_settle_ready_ms == 0U) {
       swing_settle_ready_ms = now_ms;
     } else if (now_ms - swing_settle_ready_ms >=
                config::kSwingSettleHoldMs) {
+      if (!switchODriveToTorqueControl()) {
+        enterFault(odrive_arm_failure[0] == '\0'
+                       ? "ODrive refused torque-mode handoff"
+                       : odrive_arm_failure,
+                   FaultReferencePolicy::kInvalidate);
+        return;
+      }
       mode = Mode::kSwingUp;
       run_started_ms = now_ms;
       event("WARN", "SWING_PHASE", "pendulum settled; energy swing started");
     }
+    return;
   } else {
     if (guarded_swing_trial &&
         now_ms - run_started_ms > config::kSwingTuningMaximumRunMs) {
@@ -601,7 +653,65 @@ bool parseStrictFloat(const char* text, float& value) {
          std::isfinite(value);
 }
 
-bool armODrive() {
+bool nearlyEqual(const float actual, const float expected,
+                 const float tolerance = 0.001F) {
+  return std::isfinite(actual) && std::fabs(actual - expected) <= tolerance;
+}
+
+bool commandODriveCenter(const uint32_t now_ms) {
+  if (now_ms - last_position_command_ms <
+      config::kSwingCenterCommandPeriodMs) {
+    return true;
+  }
+  if (!odrive.setPosition(arm_zero_turns,
+                          config::kSwingCenterVelocityLimitTurnsS,
+                          config::kSwingCenterTorqueLimitNm)) {
+    return false;
+  }
+  last_position_command_ms = now_ms;
+  return true;
+}
+
+bool switchODriveToTorqueControl() {
+  odrive_arm_failure[0] = '\0';
+  const auto fail = [](const char* reason) {
+    std::snprintf(odrive_arm_failure, sizeof(odrive_arm_failure), "%s",
+                  reason);
+    requestIdle();
+    return false;
+  };
+
+  // PASSTHROUGH is valid for position and torque modes, so change it first.
+  // The official ASCII `c` command then changes control mode to torque and
+  // feeds the already-running ODrive watchdog with an explicit zero request.
+  if (!odrive.writeProperty("axis0.controller.config.input_mode", "1")) {
+    return fail("ODrive rejected torque passthrough during swing handoff");
+  }
+  if (!odrive.setTorque(0.0F)) {
+    return fail("ODrive rejected zero torque during swing handoff");
+  }
+
+  uint32_t control_mode = 0;
+  uint32_t input_mode = 0;
+  if (!odrive.readUnsigned("axis0.controller.config.control_mode",
+                           control_mode,
+                           config::kUartConfigurationResponseTimeoutUs) ||
+      !odrive.setTorque(0.0F)) {
+    return fail("ODrive did not verify torque mode during swing handoff");
+  }
+  if (!odrive.readUnsigned("axis0.controller.config.input_mode", input_mode,
+                           config::kUartConfigurationResponseTimeoutUs) ||
+      !odrive.setTorque(0.0F)) {
+    return fail("ODrive did not verify passthrough during swing handoff");
+  }
+  if (control_mode != 1U || input_mode != 1U) {
+    return fail("ODrive mode mismatch during swing handoff");
+  }
+  commanded_torque_nm = 0.0F;
+  return true;
+}
+
+bool armODriveTorque() {
   odrive_arm_failure[0] = '\0';
   const auto fail = [](const char* reason) {
     std::snprintf(odrive_arm_failure, sizeof(odrive_arm_failure), "%s",
@@ -703,6 +813,133 @@ bool armODrive() {
   return true;
 }
 
+bool armODrivePosition() {
+  odrive_arm_failure[0] = '\0';
+  const auto fail = [](const char* reason) {
+    std::snprintf(odrive_arm_failure, sizeof(odrive_arm_failure), "%s",
+                  reason);
+    requestIdle();
+    return false;
+  };
+
+  odrive.drainInput();
+  if (!odrive.writeProperty("axis0.config.enable_watchdog", "0")) {
+    return fail("ODrive UART failed while disabling the stale watchdog");
+  }
+  if (!odrive.clearErrors()) {
+    return fail("ODrive UART failed while clearing errors before centering");
+  }
+  if (!odrive.writeProperty("axis0.config.watchdog_timeout",
+                            config::kODriveWatchdogSeconds)) {
+    return fail("ODrive rejected the watchdog timeout");
+  }
+  if (!odrive.writeFloatProperty(
+          "axis0.controller.config.input_filter_bandwidth",
+          config::kSwingCenterInputFilterBandwidth) ||
+      !odrive.writeFloatProperty("axis0.controller.config.vel_limit",
+                                 config::kSwingCenterVelocityLimitTurnsS) ||
+      !odrive.writeProperty("axis0.controller.config.enable_vel_limit", "1") ||
+      !odrive.writeFloatProperty("axis0.controller.config.pos_gain",
+                                 config::kSwingCenterPositionGain) ||
+      !odrive.writeFloatProperty("axis0.controller.config.vel_gain",
+                                 config::kSwingCenterVelocityGain) ||
+      !odrive.writeFloatProperty(
+          "axis0.controller.config.vel_integrator_gain",
+          config::kSwingCenterVelocityIntegratorGain)) {
+    return fail("ODrive rejected filtered-position gains or limits");
+  }
+  if (!odrive.writeProperty("axis0.controller.config.input_mode", "3") ||
+      !odrive.writeProperty("axis0.controller.config.control_mode", "3")) {
+    return fail("ODrive rejected filtered position control mode");
+  }
+
+  // Seed the filtered setpoint at the measured position before closed-loop
+  // entry. Only after the mode and gains are verified do we command saved zero.
+  if (!odrive.setPosition(arm_position_turns,
+                          config::kSwingCenterVelocityLimitTurnsS,
+                          config::kSwingCenterTorqueLimitNm) ||
+      !odrive.writeProperty("axis0.requested_state", "8")) {
+    return fail("ODrive refused filtered-position closed-loop entry");
+  }
+  delay(30);
+
+  uint32_t control_mode = 0;
+  uint32_t input_mode = 0;
+  uint32_t velocity_limit_enabled = 0;
+  uint32_t current_state = 0;
+  uint32_t active_errors = 0;
+  float filter_bandwidth = 0.0F;
+  float velocity_limit = 0.0F;
+  float position_gain = 0.0F;
+  float velocity_gain = 0.0F;
+  float velocity_integrator_gain = 0.0F;
+  const uint32_t timeout = config::kUartConfigurationResponseTimeoutUs;
+  if (!odrive.readUnsigned("axis0.controller.config.control_mode",
+                           control_mode, timeout) ||
+      !odrive.readUnsigned("axis0.controller.config.input_mode", input_mode,
+                           timeout) ||
+      !odrive.readUnsigned("axis0.controller.config.enable_vel_limit",
+                           velocity_limit_enabled, timeout) ||
+      !odrive.readUnsigned("axis0.current_state", current_state, timeout) ||
+      !odrive.readUnsigned("axis0.active_errors", active_errors, timeout) ||
+      !odrive.readFloat("axis0.controller.config.input_filter_bandwidth",
+                        filter_bandwidth, timeout) ||
+      !odrive.readFloat("axis0.controller.config.vel_limit", velocity_limit,
+                        timeout) ||
+      !odrive.readFloat("axis0.controller.config.pos_gain", position_gain,
+                        timeout) ||
+      !odrive.readFloat("axis0.controller.config.vel_gain", velocity_gain,
+                        timeout) ||
+      !odrive.readFloat("axis0.controller.config.vel_integrator_gain",
+                        velocity_integrator_gain, timeout)) {
+    return fail("ODrive did not verify filtered-position configuration");
+  }
+  odrive_active_errors = active_errors;
+  if (active_errors != 0U || current_state != 8U || control_mode != 3U ||
+      input_mode != 3U || velocity_limit_enabled != 1U ||
+      !nearlyEqual(filter_bandwidth,
+                   config::kSwingCenterInputFilterBandwidth) ||
+      !nearlyEqual(velocity_limit,
+                   config::kSwingCenterVelocityLimitTurnsS) ||
+      !nearlyEqual(position_gain, config::kSwingCenterPositionGain) ||
+      !nearlyEqual(velocity_gain, config::kSwingCenterVelocityGain) ||
+      !nearlyEqual(velocity_integrator_gain,
+                   config::kSwingCenterVelocityIntegratorGain)) {
+    return fail("ODrive filtered-position readback mismatch");
+  }
+
+  if (!odrive.writeProperty("axis0.config.enable_watchdog", "1") ||
+      !odrive.setPosition(arm_zero_turns,
+                          config::kSwingCenterVelocityLimitTurnsS,
+                          config::kSwingCenterTorqueLimitNm)) {
+    return fail("ODrive failed to start the centered-position watchdog");
+  }
+  uint32_t watchdog_enabled = 0;
+  float commanded_position = 0.0F;
+  if (!odrive.readUnsigned("axis0.config.enable_watchdog", watchdog_enabled,
+                           timeout) ||
+      !odrive.setPosition(arm_zero_turns,
+                          config::kSwingCenterVelocityLimitTurnsS,
+                          config::kSwingCenterTorqueLimitNm) ||
+      !odrive.readFloat("axis0.controller.input_pos", commanded_position,
+                        timeout)) {
+    return fail("ODrive did not verify the centered-position target");
+  }
+  if (watchdog_enabled != 1U ||
+      !nearlyEqual(commanded_position, arm_zero_turns, 0.0001F)) {
+    return fail("ODrive centered-position target readback mismatch");
+  }
+  if (!readODriveFeedback() ||
+      !odrive.setPosition(arm_zero_turns,
+                          config::kSwingCenterVelocityLimitTurnsS,
+                          config::kSwingCenterTorqueLimitNm)) {
+    return fail("ODrive position feedback failed immediately after arming");
+  }
+  commanded_torque_nm = 0.0F;
+  last_position_command_ms = millis();
+  return true;
+}
+
 void disarm(const bool acknowledge_fault) {
   requestIdle();
   delay(10);
@@ -716,6 +953,7 @@ void disarm(const bool acknowledge_fault) {
   guarded_swing_trial = false;
   swing_phase_started_ms = 0U;
   swing_settle_ready_ms = 0U;
+  last_position_command_ms = 0U;
   commanded_torque_nm = 0.0F;
   if (acknowledge_fault) fault_reason[0] = '\0';
   event("INFO", "DISARMED", "motor requested idle");
@@ -897,7 +1135,7 @@ void executeCommand() {
                std::fabs(state.pendulum_velocity_rad_s) >
                    config::kTuningStartRateRadS) {
       event("WARN", "REFUSED", "hold pendulum nearly upright and motionless");
-    } else if (!armODrive()) {
+    } else if (!armODriveTorque()) {
       enterFault(odrive_arm_failure[0] == '\0'
                      ? "ODrive refused tuning arm request"
                      : odrive_arm_failure);
@@ -930,7 +1168,7 @@ void executeCommand() {
                std::fabs(state.arm_velocity_rad_s) >
                    config::kSwingPrepositionStartArmRateRadS) {
       event("WARN", "REFUSED", "hold arm and hanging pendulum inside safe start envelope");
-    } else if (!armODrive()) {
+    } else if (!armODrivePosition()) {
       enterFault(odrive_arm_failure[0] == '\0'
                      ? "ODrive refused guarded swing-up request"
                      : odrive_arm_failure);
@@ -955,7 +1193,7 @@ void executeCommand() {
     } else if (!zero_valid || !encoder_healthy || !odrive_online ||
                !browserDeadmanFresh(millis())) {
       event("WARN", "REFUSED", "setup checks are incomplete");
-    } else if (!armODrive()) {
+    } else if (!armODrivePosition()) {
       enterFault(odrive_arm_failure[0] == '\0'
                      ? "ODrive refused closed-loop control"
                      : odrive_arm_failure);

@@ -88,7 +88,6 @@ constexpr float kSwingTorqueLimitNm =
     kSwingPhaseCurrentLimitAmp * kMotorTorqueConstantNmPerAmp;
 constexpr float kSwingTuningTorqueLimitNm =
     kSwingTuningPhaseCurrentLimitAmp * kMotorTorqueConstantNmPerAmp;
-constexpr float kSwingCenteringTorqueLimitNm = 0.300F;
 constexpr float kTuningTorqueLimitNm =
     kTuningPhaseCurrentLimitAmp * kMotorTorqueConstantNmPerAmp;
 constexpr float kTorqueSlewNmPerSecond = 8.0F;
@@ -169,23 +168,27 @@ constexpr furuta::SwingSettings kDefaultSwingSettings{
 constexpr furuta::SwingSettings kSwingSettingLimits{
     20.00F, 1.000F, 1.000F, 0.300F, 0.300F};
 constexpr uint32_t kSwingStartupKickPhaseMs = 180;
-// A guarded run may begin away from center. A low-torque velocity-limited phase
-// first moves the arm to its saved zero, then holds it until the pendulum is
-// quiet continuously before energy pumping begins.
+// A guarded run may begin away from center. ODrive's filtered position mode
+// moves the arm to its saved zero with the hardware-tested gains below, then
+// continues holding that exact target until the mechanism is quiet.
 constexpr float kSwingPrepositionStartArmAngleRad = 1.75F;
 constexpr float kSwingPrepositionStartArmRateRadS = 0.50F;
 constexpr float kSwingPrepositionStartDownToleranceRad = 0.80F;
 constexpr float kSwingPrepositionStartPendulumRateRadS = 2.0F;
-constexpr float kSwingCenterPositionGainPerSecond = 2.50F;
-constexpr float kSwingCenterMaximumVelocityRadS = 0.45F;
-constexpr float kSwingCenterVelocityGainNmPerRadS = 0.670F;
-constexpr float kSwingCenterAngleToleranceRad = 0.06F;
-constexpr float kSwingCenterRateToleranceRadS = 0.15F;
+constexpr float kSwingCenterInputFilterBandwidth = 20.0F;
+constexpr float kSwingCenterVelocityLimitTurnsS = 0.50F;
+constexpr float kSwingCenterPositionGain = 20.0F;
+constexpr float kSwingCenterVelocityGain = 0.167F;
+constexpr float kSwingCenterVelocityIntegratorGain = 0.333F;
+constexpr float kSwingCenterTorqueLimitNm = 0.300F;
+constexpr uint32_t kSwingCenterCommandPeriodMs = 20;
+constexpr float kSwingCenterAngleToleranceRad = 0.020F;
+constexpr float kSwingCenterRateToleranceRadS = 0.050F;
 constexpr uint32_t kSwingCenterTimeoutMs = 12000;
-constexpr float kSwingSettleDownToleranceRad = 0.10F;
-constexpr float kSwingSettlePendulumRateRadS = 0.30F;
-constexpr uint32_t kSwingSettleHoldMs = 1200;
-constexpr uint32_t kSwingSettleTimeoutMs = 12000;
+constexpr float kSwingSettleDownToleranceRad = 0.040F;
+constexpr float kSwingSettlePendulumRateRadS = 0.120F;
+constexpr uint32_t kSwingSettleHoldMs = 2500;
+constexpr uint32_t kSwingSettleTimeoutMs = 20000;
 constexpr float kCatchAngleRad = 0.14F;
 constexpr float kDropAngleRad = 0.45F;
 constexpr float kCatchPendulumVelocityRadS = 1.5F;
@@ -226,7 +229,7 @@ static_assert(kTuningPhaseCurrentLimitAmp <= kSwingPhaseCurrentLimitAmp &&
                   kSwingPhaseCurrentLimitAmp <=
                       kCommissioningPhaseCurrentLimitAmp,
               "current limit tiers must be ordered");
-static_assert(kSwingCenteringTorqueLimitNm <= kSwingTuningTorqueLimitNm,
+static_assert(kSwingCenterTorqueLimitNm <= kSwingTuningTorqueLimitNm,
               "automatic centering must not exceed swing tuning torque");
 static_assert(kSwingSettingLimits.startup_kick_nm <=
                   kSwingTuningTorqueLimitNm &&
@@ -235,8 +238,18 @@ static_assert(kSwingSettingLimits.startup_kick_nm <=
               "runtime swing settings must remain inside the hard clamp");
 static_assert(kSwingPrepositionStartArmAngleRad < kArmAngleLimitRad,
               "swing preparation must begin inside the arm travel limit");
-static_assert(kSwingCenterMaximumVelocityRadS < kArmVelocityLimitRadS,
+static_assert(kSwingCenterVelocityLimitTurnsS * furuta::kTwoPi <
+                  kArmVelocityLimitRadS,
               "automatic centering speed must remain below arm overspeed");
+static_assert(kSwingCenterCommandPeriodMs < 50U,
+              "position commands must feed the 50 ms ODrive watchdog");
+static_assert(kSwingCenterInputFilterBandwidth > 0.0F &&
+                  kSwingCenterPositionGain > 0.0F &&
+                  kSwingCenterVelocityGain > 0.0F &&
+                  kSwingCenterVelocityIntegratorGain >= 0.0F,
+              "filtered-position gains must be valid");
+static_assert(kSwingSettleHoldMs < kSwingSettleTimeoutMs,
+              "settling hold must fit inside settling timeout");
 static_assert(kSwingSettleDownToleranceRad <
                   kSwingPrepositionStartDownToleranceRad &&
                   kSwingSettlePendulumRateRadS <

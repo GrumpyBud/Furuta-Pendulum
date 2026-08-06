@@ -127,7 +127,7 @@
             <button id="armButton" class="button secondary" type="button" disabled>Full automatic locked</button>
             <button id="disarmButton" class="button stop" type="button" disabled>DISARM / STOP</button>
           </div>
-          <p id="swingHint" class="run-copy">Let go once the pendulum is generally downward and the arm has stopped. Holding Space makes the controller slowly center the arm, wait for the pendulum to settle, then start a 20-second guarded swing-up with up to 0.300 N·m. Release Space to stop immediately.</p>
+          <p id="swingHint" class="run-copy">Let go once the pendulum is generally downward and the arm has stopped. Holding Space uses the tested ODrive filtered-position gains to center at up to 0.5 turn/s, holds the exact target until arm and pendulum remain settled for 2.5 seconds, verifies torque mode, then starts swing-up. Release Space to stop immediately.</p>
         </article>
         <details class="advanced-gains" open>
           <summary>Swing-up tuning controls</summary>

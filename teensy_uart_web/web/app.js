@@ -18,8 +18,8 @@
 
   const modeDescriptions = {
     DISARMED: "Motor output is disabled.", TEST: "Sensor test only; motor output is disabled.",
-    CENTERING: "The arm is moving slowly toward its saved center.",
-    SETTLING: "The arm is centered while the pendulum becomes motionless.",
+    CENTERING: "ODrive filtered-position control is moving toward saved center at up to 0.5 turn/s.",
+    SETTLING: "ODrive is holding saved center; all strict settling gates must remain true for 2.5 seconds.",
     SWING_UP: "Automatic swing-up is active.", BALANCE: "Upright balance control is active.",
     TUNING: "Low-torque Spacebar dead-man test is active.", FAULT: "A safety check stopped the controller.", OFFLINE: "Connect the Teensy to begin."
   };

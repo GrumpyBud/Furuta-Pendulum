@@ -59,20 +59,31 @@ void test_down_angle_error_handles_wrap_boundary() {
                            furuta::downAngleError(0.0F));
 }
 
-void test_center_arm_torque_is_slow_bounded_and_directional() {
-  const furuta::State positive_arm{1.0F, -furuta::kPi, 0.0F, 0.0F};
-  const furuta::State negative_arm{-1.0F, -furuta::kPi, 0.0F, 0.0F};
-  TEST_ASSERT_FLOAT_WITHIN(
-      1.0e-6F, -0.30F,
-      furuta::centerArmTorque(positive_arm, 2.5F, 0.45F, 0.67F, 0.30F));
-  TEST_ASSERT_FLOAT_WITHIN(
-      1.0e-6F, 0.30F,
-      furuta::centerArmTorque(negative_arm, 2.5F, 0.45F, 0.67F, 0.30F));
-  TEST_ASSERT_FLOAT_WITHIN(
-      1.0e-6F, -0.30F,
-      furuta::centerArmTorque(
-          {1.0F, -furuta::kPi, 2.0F, 0.0F},
-          2.5F, 0.45F, 0.67F, 0.30F));
+void test_swing_preparation_requires_every_strict_settling_gate() {
+  constexpr float arm_angle_tolerance = 0.020F;
+  constexpr float arm_rate_tolerance = 0.050F;
+  constexpr float down_angle_tolerance = 0.040F;
+  constexpr float pendulum_rate_tolerance = 0.120F;
+  TEST_ASSERT_TRUE(furuta::swingPreparationSettled(
+      {0.0F, -furuta::kPi, 0.0F, 0.0F}, arm_angle_tolerance,
+      arm_rate_tolerance, down_angle_tolerance,
+      pendulum_rate_tolerance));
+  TEST_ASSERT_FALSE(furuta::swingPreparationSettled(
+      {0.021F, -furuta::kPi, 0.0F, 0.0F}, arm_angle_tolerance,
+      arm_rate_tolerance, down_angle_tolerance,
+      pendulum_rate_tolerance));
+  TEST_ASSERT_FALSE(furuta::swingPreparationSettled(
+      {0.0F, -furuta::kPi, 0.051F, 0.0F}, arm_angle_tolerance,
+      arm_rate_tolerance, down_angle_tolerance,
+      pendulum_rate_tolerance));
+  TEST_ASSERT_FALSE(furuta::swingPreparationSettled(
+      {0.0F, -furuta::kPi + 0.041F, 0.0F, 0.0F}, arm_angle_tolerance,
+      arm_rate_tolerance, down_angle_tolerance,
+      pendulum_rate_tolerance));
+  TEST_ASSERT_FALSE(furuta::swingPreparationSettled(
+      {0.0F, -furuta::kPi, 0.0F, 0.121F}, arm_angle_tolerance,
+      arm_rate_tolerance, down_angle_tolerance,
+      pendulum_rate_tolerance));
 }
 
 void test_gain_limits_follow_the_reviewed_model_profile() {
@@ -189,7 +200,7 @@ int main(int, char**) {
   RUN_TEST(test_keepalive_freshness_boundaries_and_timer_wrap);
   RUN_TEST(test_projected_travel_counts_only_outward_motion);
   RUN_TEST(test_down_angle_error_handles_wrap_boundary);
-  RUN_TEST(test_center_arm_torque_is_slow_bounded_and_directional);
+  RUN_TEST(test_swing_preparation_requires_every_strict_settling_gate);
   RUN_TEST(test_gain_limits_follow_the_reviewed_model_profile);
   RUN_TEST(test_swing_settings_reject_negative_non_finite_and_excessive_values);
   RUN_TEST(test_swing_energy_law_pumps_in_the_direction_of_motion);

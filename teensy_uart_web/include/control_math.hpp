@@ -138,17 +138,17 @@ inline float balanceTorque(const State& state, const Gains& gains) {
            gains.pendulum_velocity * state.pendulum_velocity_rad_s);
 }
 
-inline float centerArmTorque(const State& state,
-                             const float position_gain_per_second,
-                             const float maximum_velocity_rad_s,
-                             const float velocity_gain_nm_per_rad_s,
-                             const float torque_limit_nm) {
-  const float target_velocity = clamp(
-      -position_gain_per_second * state.arm_angle_rad,
-      -maximum_velocity_rad_s, maximum_velocity_rad_s);
-  return clamp(velocity_gain_nm_per_rad_s *
-                   (target_velocity - state.arm_velocity_rad_s),
-               -torque_limit_nm, torque_limit_nm);
+inline bool swingPreparationSettled(
+    const State& state, const float arm_angle_tolerance_rad,
+    const float arm_rate_tolerance_rad_s,
+    const float down_angle_tolerance_rad,
+    const float pendulum_rate_tolerance_rad_s) {
+  return std::fabs(state.arm_angle_rad) < arm_angle_tolerance_rad &&
+         std::fabs(state.arm_velocity_rad_s) < arm_rate_tolerance_rad_s &&
+         downAngleError(state.pendulum_angle_rad) <
+             down_angle_tolerance_rad &&
+         std::fabs(state.pendulum_velocity_rad_s) <
+             pendulum_rate_tolerance_rad_s;
 }
 
 inline float swingUpTorque(const State& state, const float mass_kg,
