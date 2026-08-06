@@ -88,7 +88,7 @@ constexpr float kSwingTorqueLimitNm =
     kSwingPhaseCurrentLimitAmp * kMotorTorqueConstantNmPerAmp;
 constexpr float kSwingTuningTorqueLimitNm =
     kSwingTuningPhaseCurrentLimitAmp * kMotorTorqueConstantNmPerAmp;
-constexpr float kSwingCenteringTorqueLimitNm = 0.050F;
+constexpr float kSwingCenteringTorqueLimitNm = 0.180F;
 constexpr float kTuningTorqueLimitNm =
     kTuningPhaseCurrentLimitAmp * kMotorTorqueConstantNmPerAmp;
 constexpr float kTorqueSlewNmPerSecond = 8.0F;
@@ -166,9 +166,9 @@ constexpr bool kAutomaticSwingUpEnabled = false;
 // and a 20 s energy phase timeout.
 constexpr bool kSwingTuningEnabled = true;
 constexpr furuta::SwingSettings kDefaultSwingSettings{
-    0.80F, 0.030F, 0.040F, 0.040F};
+    0.80F, 0.030F, 0.040F, 0.120F, kSwingTuningTorqueLimitNm};
 constexpr furuta::SwingSettings kSwingSettingLimits{
-    3.00F, 0.120F, 0.120F, 0.080F};
+    8.00F, 0.300F, 0.300F, 0.240F, kSwingTuningTorqueLimitNm};
 constexpr uint32_t kSwingStartupKickPhaseMs = 180;
 // A guarded run may begin away from center. A low-torque velocity-limited phase
 // first moves the arm to its saved zero, then holds it until the pendulum is
@@ -177,10 +177,10 @@ constexpr float kSwingPrepositionStartArmAngleRad = 1.75F;
 constexpr float kSwingPrepositionStartArmRateRadS = 0.50F;
 constexpr float kSwingPrepositionStartDownToleranceRad = 0.80F;
 constexpr float kSwingPrepositionStartPendulumRateRadS = 2.0F;
-constexpr float kSwingCenterPositionGainPerSecond = 0.80F;
+constexpr float kSwingCenterPositionGainPerSecond = 2.50F;
 constexpr float kSwingCenterMaximumVelocityRadS = 0.45F;
-constexpr float kSwingCenterVelocityGainNmPerRadS = 0.060F;
-constexpr float kSwingCenterAngleToleranceRad = 0.05F;
+constexpr float kSwingCenterVelocityGainNmPerRadS = 0.400F;
+constexpr float kSwingCenterAngleToleranceRad = 0.06F;
 constexpr float kSwingCenterRateToleranceRadS = 0.15F;
 constexpr uint32_t kSwingCenterTimeoutMs = 12000;
 constexpr float kSwingSettleDownToleranceRad = 0.10F;
@@ -229,6 +229,11 @@ static_assert(kTuningPhaseCurrentLimitAmp <= kSwingPhaseCurrentLimitAmp &&
               "current limit tiers must be ordered");
 static_assert(kSwingCenteringTorqueLimitNm <= kSwingTuningTorqueLimitNm,
               "automatic centering must not exceed swing tuning torque");
+static_assert(kSwingSettingLimits.startup_kick_nm <=
+                  kSwingTuningTorqueLimitNm &&
+                  kSwingSettingLimits.torque_limit_nm <=
+                      kSwingTuningTorqueLimitNm,
+              "runtime swing settings must remain inside the hard clamp");
 static_assert(kSwingPrepositionStartArmAngleRad < kArmAngleLimitRad,
               "swing preparation must begin inside the arm travel limit");
 static_assert(kSwingCenterMaximumVelocityRadS < kArmVelocityLimitRadS,

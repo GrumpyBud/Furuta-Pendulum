@@ -70,17 +70,20 @@ struct SwingSettings {
   float arm_damping;
   float arm_centering;
   float startup_kick_nm;
+  float torque_limit_nm;
 };
 
 inline bool swingSettingsWithinLimits(const SwingSettings& candidate,
                                       const SwingSettings& limits) {
   const float candidate_values[] = {
       candidate.energy_gain, candidate.arm_damping,
-      candidate.arm_centering, candidate.startup_kick_nm};
+      candidate.arm_centering, candidate.startup_kick_nm,
+      candidate.torque_limit_nm};
   const float limit_values[] = {
       limits.energy_gain, limits.arm_damping,
-      limits.arm_centering, limits.startup_kick_nm};
-  for (size_t index = 0; index < 4U; ++index) {
+      limits.arm_centering, limits.startup_kick_nm,
+      limits.torque_limit_nm};
+  for (size_t index = 0; index < 5U; ++index) {
     if (!std::isfinite(candidate_values[index]) ||
         candidate_values[index] < 0.0F ||
         candidate_values[index] > limit_values[index]) {

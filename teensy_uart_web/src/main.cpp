@@ -558,9 +558,11 @@ void runControlTick() {
       }
       requested_torque -=
           swing_settings.arm_centering * state.arm_angle_rad;
+      const float active_swing_limit_nm = std::fmin(
+          swing_settings.torque_limit_nm, config::kSwingTorqueLimitNm);
       requested_torque = furuta::clamp(
-          requested_torque, -config::kSwingTorqueLimitNm,
-          config::kSwingTorqueLimitNm);
+          requested_torque, -active_swing_limit_nm,
+          active_swing_limit_nm);
     }
     if (guarded_swing_trial) {
       requested_torque = furuta::clamp(
@@ -854,14 +856,15 @@ void executeCommand() {
       event("WARN", "REFUSED", "change swing settings only while motor is disabled");
       return;
     }
-    char* values[4]{};
-    for (size_t index = 0; index < 4U; ++index) {
+    char* values[5]{};
+    for (size_t index = 0; index < 5U; ++index) {
       values[index] = strtok_r(nullptr, " ", &save);
     }
     if (values[0] == nullptr || values[1] == nullptr ||
         values[2] == nullptr || values[3] == nullptr ||
+        values[4] == nullptr ||
         strtok_r(nullptr, " ", &save) != nullptr) {
-      event("WARN", "BAD_SWING", "energy damping centering kick are required");
+      event("WARN", "BAD_SWING", "energy damping centering kick torque-limit are required");
       return;
     }
     furuta::SwingSettings candidate{};
@@ -869,6 +872,7 @@ void executeCommand() {
         !parseStrictFloat(values[1], candidate.arm_damping) ||
         !parseStrictFloat(values[2], candidate.arm_centering) ||
         !parseStrictFloat(values[3], candidate.startup_kick_nm) ||
+        !parseStrictFloat(values[4], candidate.torque_limit_nm) ||
         !furuta::swingSettingsWithinLimits(
             candidate, config::kSwingSettingLimits)) {
       event("WARN", "BAD_SWING", "swing values exceed firmware limits");
@@ -965,7 +969,7 @@ void executeCommand() {
   } else if (std::strcmp(verb, "status") == 0) {
     last_telemetry_ms = 0;
   } else if (std::strcmp(verb, "help") == 0) {
-    event("INFO", "HELP", "zero | odrive_clear | gains a p av pv | swing_settings energy damping centering kick | tune_start CONFIRM | swing_start CONFIRM | arm CONFIRM | disarm | status");
+    event("INFO", "HELP", "zero | odrive_clear | gains a p av pv | swing_settings energy damping centering kick torque-limit | tune_start CONFIRM | swing_start CONFIRM | arm CONFIRM | disarm | status");
   } else {
     event("WARN", "UNKNOWN", original);
   }
@@ -1019,6 +1023,7 @@ void printTelemetry() {
   Serial.print(','); Serial.print(swing_settings.arm_damping, 4);
   Serial.print(','); Serial.print(swing_settings.arm_centering, 4);
   Serial.print(','); Serial.print(swing_settings.startup_kick_nm, 4);
+  Serial.print(','); Serial.print(swing_settings.torque_limit_nm, 4);
   Serial.print(','); Serial.println(fault_reason[0] == '\0' ? "-" : fault_reason);
 }
 
@@ -1031,7 +1036,7 @@ void setup() {
   delay(20);
   requestIdle();
   next_control_us = micros() + config::kControlPeriodUs;
-  Serial.println(F("@HELLO,6,Teensy 4.1,ODrive UART,AS5048A SPI"));
+  Serial.println(F("@HELLO,7,Teensy 4.1,ODrive UART,AS5048A SPI"));
   event("INFO", "READY", "controller booted DISARMED; open the setup page");
 }
 
