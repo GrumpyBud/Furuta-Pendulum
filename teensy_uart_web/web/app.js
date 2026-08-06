@@ -5,7 +5,7 @@
   const elements = {
     connectionPill: $("connectionPill"), connectionText: $("connectionText"), connectButton: $("connectButton"),
     modeValue: $("modeValue"), modeExplanation: $("modeExplanation"), globalAlert: $("globalAlert"),
-    zeroButton: $("zeroButton"), testModeButton: $("testModeButton"), applyGainsButton: $("applyGainsButton"),
+    zeroButton: $("zeroButton"), clearOdriveErrorsButton: $("clearOdriveErrorsButton"), testModeButton: $("testModeButton"), applyGainsButton: $("applyGainsButton"),
     tuneHoldButton: $("tuneHoldButton"), tuneHint: $("tuneHint"), armButton: $("armButton"), disarmButton: $("disarmButton"),
     gainArm: $("gainArm"), gainPendulum: $("gainPendulum"), gainArmRate: $("gainArmRate"), gainPendulumRate: $("gainPendulumRate"), gainFeedback: $("gainFeedback"),
     pendulumDegrees: $("pendulumDegrees"), armDegrees: $("armDegrees"), pendulumRate: $("pendulumRate"), armRate: $("armRate"),
@@ -21,10 +21,11 @@
     TUNING: "Low-torque Spacebar dead-man test is active.", FAULT: "A safety check stopped the controller.", OFFLINE: "Connect the Teensy to begin."
   };
   const modelGains = [-0.0914, 1.44432, -0.06921, 0.13886];
+  const tunedGains = [-0.07000, 1.60000, -0.06920, 0.09000];
   const state = {
     port: null, reader: null, writer: null, connected: false, connecting: false, lineBuffer: "",
     sample: null, history: [], telemetryRows: [], events: [], toastTimer: null, deadmanTimer: null,
-    spaceHeld: false, demoTimer: null, lastMessageAt: 0
+    spaceHeld: false, tuneStartSentForHold: false, demoTimer: null, lastMessageAt: 0
   };
 
   function setConnection(kind, text) {
@@ -99,6 +100,8 @@
       if (level === "error" || code === "REFUSED") toast(message);
       if (code === "GAINS") elements.gainFeedback.textContent = message;
       if (code === "ZEROED") toast("Reference position saved");
+      if (code === "ODRIVE_CLEARED") toast("ODrive errors cleared");
+      if (code === "ODRIVE_ERRORS_REMAIN") toast(message);
     } else if (clean.startsWith("@HELLO,")) {
       logEvent(`Firmware connected (${clean.split(",").slice(1).join(" · ")})`);
     } else {
@@ -210,6 +213,9 @@
     elements.modeValue.textContent = mode.replaceAll("_", " ");
     elements.modeExplanation.textContent = modeDescriptions[mode] || "Unknown controller state.";
     elements.zeroButton.disabled = !(state.connected && sample && safeMode && ready.encoder && ready.odrive);
+    elements.clearOdriveErrorsButton.disabled = !(
+      state.connected && sample && sample.odrive && !activeMode && sample.odriveErrors !== 0
+    );
     elements.testModeButton.disabled = !(state.connected && sample && safeMode);
     elements.testModeButton.textContent = mode === "TEST" ? "Leave sensor test" : "Enter sensor test";
     elements.applyGainsButton.disabled = !(state.connected && sample && safeMode);
@@ -217,7 +223,7 @@
     const tuningPositionReady = Boolean(sample && Math.abs(sample.pendulum) < 0.14 && Math.abs(sample.pendulumRate) < 1);
     const allReady = readyCount === 6;
     elements.tuneHoldButton.disabled = !(allReady && safeMode && tuningPositionReady);
-    elements.tuneHint.textContent = !allReady ? "Complete every setup check, including holding Space." : !safeMode ? "Disarm before tuning." : !tuningPositionReady ? "Hold the pendulum nearly upright and motionless." : "Ready—keep Space held and click to begin.";
+    elements.tuneHint.textContent = !allReady ? "Complete every setup check, including holding Space." : !safeMode ? "Disarm before tuning." : !tuningPositionReady ? "Hold the pendulum nearly upright and motionless." : "Ready—holding Space starts the trial automatically.";
     elements.armButton.disabled = !(allReady && mode === "DISARMED" && sample.automatic);
     elements.disarmButton.disabled = !(state.connected && sample && (activeMode || mode === "FAULT" || mode === "TEST"));
 
@@ -228,7 +234,12 @@
     elements.spaceStatus.querySelector("strong").textContent = spaceControlIsActive() ? "SPACE HELD" : "HOLD SPACE";
     elements.spaceStatus.querySelector("small").textContent = spaceControlIsActive() ? "Release to stop motor output" : "Focused-tab dead-man control";
     elements.globalAlert.classList.toggle("hidden", mode !== "FAULT");
-    if (mode === "FAULT") elements.globalAlert.textContent = `Stopped by safety fault: ${sample.fault === "-" ? "see event log" : sample.fault}. Correct the cause, then press DISARM / STOP to acknowledge it; zero must be saved again.`;
+    if (mode === "FAULT") {
+      const zeroInstruction = sample.zero
+        ? "The saved zero is still valid; correct the cause and press DISARM / STOP to retry."
+        : "The reference was invalidated because sensor integrity was lost; correct the cause, press DISARM / STOP, then save zero again.";
+      elements.globalAlert.textContent = `Stopped by safety fault: ${sample.fault === "-" ? "see event log" : sample.fault}. ${zeroInstruction}`;
+    }
 
     if (!sample) return;
     const degrees = 180 / Math.PI;
@@ -244,6 +255,11 @@
     elements.torqueValue.textContent = sample.torque.toFixed(3);
     elements.odriveErrors.textContent = sample.odriveErrors === 0 ? "None" : `0x${sample.odriveErrors.toString(16).toUpperCase()}`;
     elements.gainSummary.textContent = sample.gains.map((value) => value.toFixed(2)).join(" · ");
+
+    if (tunePageIsActive() && spaceControlIsActive() &&
+        !state.tuneStartSentForHold && !elements.tuneHoldButton.disabled) {
+      void startTuningTrial(true);
+    }
   }
 
   function drawChart() {
@@ -276,6 +292,14 @@
     elements.gainFeedback.textContent = "Review the four values, then apply while disarmed.";
   }
 
+  function applyTunedPreset() {
+    [elements.gainArm, elements.gainPendulum, elements.gainArmRate, elements.gainPendulumRate].forEach((input, index) => {
+      input.value = tunedGains[index].toFixed(5);
+    });
+    document.querySelectorAll(".preset").forEach((button) => button.classList.toggle("selected", button.dataset.preset === "tuned"));
+    elements.gainFeedback.textContent = "Hardware-trial defaults selected; apply while disarmed only if runtime values differ.";
+  }
+
   async function applyGains() {
     const values = [elements.gainArm, elements.gainPendulum, elements.gainArmRate, elements.gainPendulumRate].map((input) => Number(input.value));
     if (!values.every(Number.isFinite)) { toast("Every gain must be a number"); return; }
@@ -292,6 +316,10 @@
     return state.spaceHeld && document.hasFocus() && !document.hidden;
   }
 
+  function tunePageIsActive() {
+    return document.querySelector('.tab.active')?.dataset.page === "tune";
+  }
+
   function isTextEntry(target) {
     return target instanceof HTMLElement &&
       (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName));
@@ -303,6 +331,7 @@
     if (event.repeat || state.spaceHeld) return;
     if (!state.connected) { toast("Connect the Teensy before using the Space control"); return; }
     state.spaceHeld = true;
+    state.tuneStartSentForHold = false;
     send("deadman_hold");
     clearInterval(state.deadmanTimer);
     state.deadmanTimer = setInterval(() => {
@@ -315,16 +344,24 @@
   function releaseSpaceDeadman(skipCommand = false) {
     const wasHeld = state.spaceHeld || state.deadmanTimer !== null;
     state.spaceHeld = false;
+    state.tuneStartSentForHold = false;
     clearInterval(state.deadmanTimer);
     state.deadmanTimer = null;
     if (wasHeld && !skipCommand && state.connected) send("deadman_release");
     render();
   }
 
-  async function startTuningTrial() {
+  async function startTuningTrial(automatic = false) {
     if (elements.tuneHoldButton.disabled || !spaceControlIsActive()) return;
-    if (!(await send("deadman_hold"))) return;
-    await send("tune_start CONFIRM");
+    state.tuneStartSentForHold = true;
+    if (!(await send("deadman_hold"))) {
+      state.tuneStartSentForHold = false;
+      return;
+    }
+    if (automatic) toast("Upright detected—starting low-torque trial");
+    if (!(await send("tune_start CONFIRM"))) {
+      state.tuneStartSentForHold = false;
+    }
   }
 
   function downloadCsv() {
@@ -340,7 +377,7 @@
     let tick = 0;
     state.demoTimer = setInterval(() => {
       tick += 1; const pendulum = -Math.PI + 0.05 * Math.sin(tick / 12), arm = 0.15 * Math.sin(tick / 30);
-      processLine(`@T,${tick * 40},TEST,${arm},${pendulum},0.02,0.08,0,1,1,OK,1,8192,118,0,0,-0.05941,0.93881,-0.04498,0.09026,0,2100,2900,0,0,-`);
+      processLine(`@T,${tick * 40},TEST,${arm},${pendulum},0.02,0.08,0,1,1,OK,1,8192,118,0,0,-0.07000,1.60000,-0.06920,0.09000,0,2100,2900,1,0,-`);
     }, 40);
     elements.connectButton.textContent = "Demo active"; elements.connectButton.disabled = true;
     logEvent("Demonstration mode started; no commands reach hardware.");
@@ -351,16 +388,22 @@
     document.querySelectorAll(".page").forEach((page) => page.classList.toggle("active", page.id === button.dataset.page));
     history.replaceState(null, "", `#${button.dataset.page}`); setTimeout(drawChart, 0);
   }));
-  document.querySelectorAll(".preset").forEach((button) => button.addEventListener("click", () => applyPreset(Number(button.dataset.scale))));
+  document.querySelectorAll(".preset").forEach((button) => button.addEventListener("click", () => {
+    if (button.dataset.preset === "tuned") applyTunedPreset();
+    else applyPreset(Number(button.dataset.scale));
+  }));
   elements.connectButton.addEventListener("click", async () => {
     if (state.connected) { await disconnect(); return; }
     if (!("serial" in navigator)) { toast("Use current Chrome or Edge on localhost"); return; }
     try { await connect(await navigator.serial.requestPort()); } catch (error) { if (error.name !== "NotFoundError") logEvent(error.message, "error"); }
   });
   elements.zeroButton.addEventListener("click", () => send("zero"));
+  elements.clearOdriveErrorsButton.addEventListener("click", async () => {
+    if (await send("odrive_clear")) toast("Clear request sent; verifying ODrive status");
+  });
   elements.testModeButton.addEventListener("click", () => send(state.sample?.mode === "TEST" ? "test_stop" : "test_start"));
   elements.applyGainsButton.addEventListener("click", applyGains);
-  elements.tuneHoldButton.addEventListener("click", startTuningTrial);
+  elements.tuneHoldButton.addEventListener("click", () => startTuningTrial(false));
   elements.armButton.addEventListener("click", async () => {
     if (!spaceControlIsActive()) { toast("Hold Space in this tab before arming"); return; }
     if (await send("deadman_hold") && spaceControlIsActive()) send("arm CONFIRM");

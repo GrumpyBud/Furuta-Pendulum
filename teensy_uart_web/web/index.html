@@ -53,7 +53,7 @@
         <div class="check-grid">
           <article id="checkConnection" class="check-card"><span class="check-icon">1</span><div><strong>USB connection</strong><p>Connect the browser to the Teensy.</p></div><b>WAITING</b></article>
           <article id="checkEncoder" class="check-card"><span class="check-icon">2</span><div><strong>Pendulum encoder</strong><p>SPI data and magnet diagnostics must be clean.</p></div><b>WAITING</b></article>
-          <article id="checkOdrive" class="check-card"><span class="check-icon">3</span><div><strong>ODrive UART</strong><p>The Teensy must receive valid checksummed feedback.</p></div><b>WAITING</b></article>
+          <article id="checkOdrive" class="check-card"><span class="check-icon">3</span><div><strong>ODrive UART</strong><p>The Teensy must receive valid checksummed feedback and the drive must report no active errors.</p><button id="clearOdriveErrorsButton" class="button secondary compact-button" type="button" disabled>Clear ODrive errors</button></div><b>WAITING</b></article>
           <article id="checkDeadman" class="check-card"><span class="check-icon">4</span><div><strong>Spacebar dead-man</strong><p>Keep Space held in this focused tab whenever motor motion is allowed.</p></div><b>HOLD SPACE</b></article>
           <article id="checkMechanism" class="check-card wide"><span class="check-icon">5</span><div><strong>Model and coupling direction</strong><p>Measured geometry, inertia, torque mapping, calculated LQR, and the motor-disabled coupling-sign check must all be complete.</p></div><b>VERIFY SIGN</b></article>
           <article id="checkZero" class="check-card wide"><span class="check-icon">6</span><div><strong>Reference position</strong><p>Centre the rotary arm and let the pendulum hang completely still and straight down, then save zero.</p></div><button id="zeroButton" class="button secondary" type="button" disabled>Save hanging-down zero</button><b>WAITING</b></article>
@@ -89,10 +89,11 @@
       <section id="tune" class="page">
         <div class="section-heading">
           <div><p class="eyebrow">STEP 3 · MODEL-BASED UPRIGHT TRIALS</p><h2>Start gently, then test the reviewed model</h2></div>
-          <span class="temporary-label">Values reset when Teensy reboots</span>
+          <span class="temporary-label">Best trial values are firmware defaults</span>
         </div>
         <div class="preset-row">
-          <button class="preset selected" data-scale="0.65" type="button">First trial<br><small>65% of model gains</small></button>
+          <button class="preset selected" data-preset="tuned" type="button">Hardware tuned<br><small>Best 8-second trial</small></button>
+          <button class="preset" data-scale="0.65" type="button">Conservative model<br><small>65% of model gains</small></button>
           <button class="preset" data-scale="1" type="button">Model nominal<br><small>Calculated 200 Hz LQR</small></button>
           <button class="preset" data-scale="1.15" type="button">Responsive<br><small>115% of model gains</small></button>
         </div>
@@ -100,10 +101,10 @@
           <summary>Advanced: inspect exact signed gains</summary>
           <p>These four terms act together. Firmware permits each only from 50% to 150% of its model value and never permits its sign to flip.</p>
           <div class="gain-grid">
-            <label><span><strong>Arm angle state</strong><small>Model-coupled position term</small></span><input id="gainArm" type="number" min="-0.1371" max="-0.0457" step="0.001" value="-0.05941"><em>K₁</em></label>
-            <label><span><strong>Pendulum angle state</strong><small>Primary upright correction term</small></span><input id="gainPendulum" type="number" min="0.7222" max="2.1665" step="0.001" value="0.93881"><em>K₂</em></label>
-            <label><span><strong>Arm rate state</strong><small>Model-coupled velocity term</small></span><input id="gainArmRate" type="number" min="-0.1038" max="-0.0346" step="0.001" value="-0.04498"><em>K₃</em></label>
-            <label><span><strong>Pendulum rate state</strong><small>Upright motion damping term</small></span><input id="gainPendulumRate" type="number" min="0.0694" max="0.2083" step="0.001" value="0.09026"><em>K₄</em></label>
+            <label><span><strong>Arm angle state</strong><small>Model-coupled position term</small></span><input id="gainArm" type="number" min="-0.1371" max="-0.0457" step="0.001" value="-0.07000"><em>K₁</em></label>
+            <label><span><strong>Pendulum angle state</strong><small>Primary upright correction term</small></span><input id="gainPendulum" type="number" min="0.7222" max="2.1665" step="0.001" value="1.60000"><em>K₂</em></label>
+            <label><span><strong>Arm rate state</strong><small>Model-coupled velocity term</small></span><input id="gainArmRate" type="number" min="-0.1038" max="-0.0346" step="0.001" value="-0.06920"><em>K₃</em></label>
+            <label><span><strong>Pendulum rate state</strong><small>Upright motion damping term</small></span><input id="gainPendulumRate" type="number" min="0.0694" max="0.2083" step="0.001" value="0.09000"><em>K₄</em></label>
           </div>
         </details>
         <div class="tune-actions">
@@ -111,10 +112,10 @@
           <p id="gainFeedback">Connect and finish setup first.</p>
         </div>
         <article class="deadman-panel">
-          <div><p class="eyebrow">LOW-TORQUE BALANCE TRIAL</p><h3>Hold Space to test</h3><p>Manually place the pendulum nearly upright and motionless. Hold Space in this tab, then start the trial. Releasing Space, changing tabs, losing browser keep-alives, leaving the catch region, or reaching 8 seconds stops motor output.</p></div>
-          <div class="hold-area"><button id="tuneHoldButton" type="button" disabled><span>START LOW-TORQUE TRIAL</span><small>Keep Space held · release Space to stop</small></button><p id="tuneHint">Complete every setup check.</p></div>
+          <div><p class="eyebrow">LOW-TORQUE BALANCE TRIAL</p><h3>Hold upright, then hold Space</h3><p>Manually place the pendulum nearly upright and motionless, then press and hold Space. The trial starts automatically—no mouse click is required. Releasing Space, changing browser tabs, losing keep-alives, leaving the catch region, or reaching 20 seconds stops motor output.</p></div>
+          <div class="hold-area"><button id="tuneHoldButton" type="button" disabled><span>SPACE STARTS THE TRIAL</span><small>Mouse click optional · release Space to stop</small></button><p id="tuneHint">Complete every setup check.</p></div>
         </article>
-        <div class="instruction warning"><span>Trial rule</span><p>Use First trial before Model nominal. Save each telemetry log and release Space immediately if motion grows. Exact individual gains are advanced controls; prefer the three reviewed profiles. Blind automatic searching remains disabled because collisions and saturation produce unsafe, misleading “learning.”</p></div>
+        <div class="instruction warning"><span>Trial rule</span><p>Start with Hardware tuned. Save each telemetry log and release Space immediately if motion grows. Exact individual gains are advanced controls; prefer the reviewed profiles. Blind automatic searching remains disabled because collisions and saturation produce unsafe, misleading “learning.”</p></div>
       </section>
 
       <section id="run" class="page">

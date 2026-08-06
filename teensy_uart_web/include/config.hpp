@@ -48,18 +48,32 @@ constexpr bool kODriveDcBusVoltageFeedbackEnabled = false;
 constexpr float kODriveVoltageFeedbackRampStartV = 51.0F;
 constexpr float kODriveVoltageFeedbackRampEndV = 53.0F;
 constexpr float kMotorDirection = 1.0F;
-constexpr float kPendulumDirection = 1.0F;
+// Hardware sign check: whole-arm clockwise motion is logical-positive. The
+// pendulum encoder count decreases for clockwise pendulum motion, while the
+// observed inertial coupling makes arm CW -> pendulum CW (and CCW -> CCW).
+// Negating the raw pendulum coordinate therefore makes positive arm
+// acceleration produce positive pendulum acceleration as assumed by the model.
+constexpr float kPendulumDirection = -1.0F;
 
 // UART ASCII needs request/response time. 200 Hz is an intentional compromise
 // at 115200 baud; raise the baud before raising this rate.
 constexpr uint32_t kControlPeriodUs = 5000;  // 200 Hz
 constexpr uint32_t kUartResponseTimeoutUs = 4500;
+// Long property names can take nearly the entire fast timeout just to leave
+// the Teensy TX pin at 115200 baud. This larger timeout is used only during
+// disarmed setup/arming verification, never inside the active 200 Hz loop.
+constexpr uint32_t kUartConfigurationResponseTimeoutUs = 12000;
 constexpr uint32_t kFeedbackTimeoutUs = 15000;
 constexpr uint32_t kODriveHealthPollMs = 200;
 constexpr uint32_t kODriveInactiveHealthPollMs = 500;
-constexpr uint32_t kTelemetryPeriodMs = 40;  // 25 Hz over USB
+constexpr uint32_t kTelemetryPeriodMs = 40;        // 25 Hz normally
+constexpr uint32_t kTuningTelemetryPeriodMs = 10;  // 100 Hz during gain trials
 constexpr uint32_t kEncoderDiagnosticsPeriodMs = 100;
-constexpr float kVelocityFilterHz = 35.0F;
+// Hardware trials showed a repeatable upright catch followed by rapid torque
+// reversals dominated by the pendulum-rate term. 25 Hz keeps useful damping
+// while attenuating more AS5048A finite-difference noise than the original
+// 35 Hz commissioning value.
+constexpr float kVelocityFilterHz = 25.0F;
 
 // Conservative commissioning limits expressed as phase current first, then
 // converted to torque with the measured ODrive torque constant. These are
@@ -91,7 +105,9 @@ constexpr char kODriveWatchdogSeconds[] = "0.05";
 constexpr float kTuningStartAngleRad = 0.14F;
 constexpr float kTuningAbortAngleRad = 0.32F;
 constexpr float kTuningStartRateRadS = 1.0F;
-constexpr uint32_t kTuningMaximumRunMs = 8000;
+// Three repeatable 8 s hands-off trials passed with the hardware-tuned gains
+// and 25 Hz velocity filter. The next guarded validation window is 20 s.
+constexpr uint32_t kTuningMaximumRunMs = 20000;
 // The focused browser sends this only while Space is physically held.
 constexpr uint32_t kBrowserDeadmanTimeoutMs = 450;
 
@@ -133,7 +149,7 @@ constexpr float kTransmissionEfficiency = 1.0F;  // direct-drive starting value
 
 // Set true only after the motor-disabled coupling-sign procedure in the README
 // confirms kPendulumDirection. This is the final compile-time tuning interlock.
-constexpr bool kControlDirectionVerified = false;
+constexpr bool kControlDirectionVerified = true;
 constexpr bool kMechanismSetupComplete = kControlDirectionVerified;
 // Upright trials must be repeatably stable and their logs reviewed before this
 // separate interlock is enabled. It prevents unvalidated automatic swing-up.
@@ -155,14 +171,13 @@ constexpr float kCatchPendulumVelocityRadS = 3.0F;
 // positive pendulum acceleration. See BALANCING_REVIEW.md for A/B/Q/R.
 constexpr furuta::Gains kModelBalanceGains{-0.09140F, 1.44432F, -0.06921F,
                                             0.13886F};
-constexpr float kFirstTrialGainScale = 0.65F;
 constexpr float kMinimumRuntimeGainScale = 0.50F;
 constexpr float kMaximumRuntimeGainScale = 1.50F;
-constexpr furuta::Gains kDefaultBalanceGains{
-    kModelBalanceGains.arm_angle * kFirstTrialGainScale,
-    kModelBalanceGains.pendulum_angle * kFirstTrialGainScale,
-    kModelBalanceGains.arm_velocity * kFirstTrialGainScale,
-    kModelBalanceGains.pendulum_velocity * kFirstTrialGainScale};
+// Best hardware-validated combination so far: three hands-off trials reached
+// the complete 8 s tuning window. Automatic swing-up remains independently
+// locked until the longer guarded trials are reviewed.
+constexpr furuta::Gains kDefaultBalanceGains{-0.07000F, 1.60000F, -0.06920F,
+                                              0.09000F};
 // Redundant absolute bounds sit outside the enforced 50-150% same-sign model
 // profile envelope and reject arbitrary high feedback.
 constexpr furuta::Gains kGainAbsoluteLimits{0.16F, 2.50F, 0.13F, 0.25F};
@@ -189,5 +204,7 @@ static_assert(kPendulumDirection == 1.0F || kPendulumDirection == -1.0F,
               "kPendulumDirection must be exactly 1 or -1");
 static_assert(kUartResponseTimeoutUs < kControlPeriodUs,
               "UART response timeout must be shorter than the loop period");
+static_assert(kUartConfigurationResponseTimeoutUs < 50000U,
+              "arming verification timeout must stay below the ODrive watchdog");
 
 }  // namespace config

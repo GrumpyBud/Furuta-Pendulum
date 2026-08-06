@@ -113,7 +113,7 @@ python3 web/serve.py
 
 Open [http://localhost:8765](http://localhost:8765) in a current desktop Chrome or Edge browser, then click **Connect Teensy** and choose its USB serial port. Web Serial requires the first connection to come from a user click. The server binds only to `127.0.0.1`, has no Python package dependencies, and the page loads no cloud resources. Use `?demo=1` to preview without hardware.
 
-Keep the control page focused and continuously hold **Space** whenever motor motion is intended. Space does not start motion by itself: while holding it, explicitly click **Start low-torque trial** or **Arm automatic motion**. Releasing Space, changing tabs, minimizing the window, disconnecting, or crashing the page stops the browser dead-man messages. The page immediately requests idle on a detected release or focus loss; the Teensy independently rejects stale messages after 450 ms, and the ODrive watchdog is the shorter motor-command fallback once armed.
+Keep the control page focused and continuously hold **Space** whenever motor motion is intended. On the **Tune** page, holding the pendulum inside the upright start window and then holding Space starts the low-torque trial automatically, so no mouse click is required. Automatic swing-up still requires its explicit arm button. Releasing Space, changing browser tabs, minimizing the window, disconnecting, or crashing the page stops the browser dead-man messages. The page immediately requests idle on a detected release or focus loss; the Teensy independently rejects stale messages after 450 ms, and the ODrive watchdog is the shorter motor-command fallback once armed.
 
 The Spacebar control is intentionally ignored while typing in a form field. Click outside a gain input before holding Space. A browser key is not a safety-rated E-stop and cannot protect against a frozen operating system, USB stack, ODrive fault, or power-stage fault.
 
@@ -122,17 +122,18 @@ The Spacebar control is intentionally ignored while typing in a form field. Clic
 1. Mechanically disconnect the motor or remove motor power. Install guards and physical stops now—not later.
 2. Power only logic, open the dashboard, and connect. The controller must report `DISARMED`.
 3. On **Setup**, confirm clean encoder diagnostics and ODrive UART feedback. Press and hold Space in the focused page and confirm the Spacebar check turns green; release it and confirm the check immediately clears.
+   If the UART is online but the ODrive reports a latched error, correct the underlying condition first, then use **Clear ODrive errors**. The button is disabled during every motor-active mode and verifies the live error mask after clearing.
 4. Enter **Sensor test**. Move the mechanism slowly by hand through its expected range. Verify smooth angles, correct signs, zero SPI errors, and a worst loop-work time comfortably below 5 ms.
 5. Centre the rotary arm, let the pendulum hang straight down and motionless, then save zero. The dashboard should show about `-180°` hanging and `0°` upright.
 6. With motor power still disconnected, establish the model coupling sign. Move the arm gently but briskly in the dashboard's positive direction while the pendulum is near upright and free to lag. The initial pendulum angle must move **positive** as its top lags the arm. If it moves negative, change only `kPendulumDirection`, rebuild, and repeat. Once this is repeatable, set `kControlDirectionVerified = true`; do not alter gain signs.
 7. Calibrate and test the ODrive separately with the linkage disconnected and a tiny current/torque limit.
-8. Only after expert review of the model/gains, install the guard, clear the full envelope, enable current-limited motor power, and use **Tune**. Hold the pendulum upright, hold Space, and click the low-torque trial button. Release Space to stop.
-9. Use **First trial** before **Model nominal**. Repeat a short test and download the CSV after each profile. A fault invalidates zero; correct the cause, press **DISARM / STOP**, and zero again. Exact individual gains are exposed only as advanced controls.
+8. Only after expert review of the model/gains, install the guard, clear the full envelope, enable current-limited motor power, and use **Tune**. Hold the pendulum upright and then hold Space; the low-torque trial starts automatically. Release Space to stop.
+9. Start with **Hardware tuned**, which is also the firmware default. Repeat a guarded test and download the CSV after each profile. Travel, speed, catch-region, timeout, deadline, and dead-man faults preserve the saved zero because neither encoder reference changed. Encoder corruption, non-finite sensor data, ODrive active errors, or loss of ODrive feedback invalidate it. The fault banner states which case occurred. Exact individual gains are exposed only as advanced controls.
 10. Use **Run** only after bounded upright trials are consistently stable and their logs have been reviewed. Then deliberately set `kAutomaticSwingUpEnabled = true`, rebuild, and repeat all setup checks. Arming begins the startup nudge and swing-up immediately.
 
 ## Why tuning is guided rather than automatic
 
-Blind automatic gain search on an unstable mechanism can command unsafe motion and learn from collisions or saturation instead of real dynamics. The UI therefore offers three model-based profiles, advanced bounded values, low tuning torque, upright-only start/abort regions, a focused-tab Spacebar dead-man, an eight-second limit, logging, and non-persistent trials. The starting gains now come from the measured linear model; hardware trials remain manual and supervised because damping, transport delay, actuator behavior, and model error still have to be validated.
+Blind automatic gain search on an unstable mechanism can command unsafe motion and learn from collisions or saturation instead of real dynamics. The UI therefore offers the hardware-tuned default plus three model-based profiles, advanced bounded values, low tuning torque, upright-only start/abort regions, a focused-tab Spacebar dead-man, a twenty-second guarded limit, and logging. Runtime gain edits reset to the validated default after reboot. Hardware trials remain manual and supervised because damping, transport delay, actuator behavior, and model error still have to be validated.
 
 ## Troubleshooting
 
@@ -144,6 +145,6 @@ Blind automatic gain search on an unstable mechanism can command unsafe motion a
 - **A sign is backward:** change the corresponding direction constant with all motor power off, rebuild, and repeat the explicit coupling-sign procedure. Do not flip a gain.
 - **Tuning refuses to start:** all six setup checks must pass, `kControlDirectionVerified` must be true, Space must remain held in the focused tab, the controller must be `DISARMED` or `TEST`, and the pendulum must be within about 8° of upright and moving slower than 1 rad/s.
 - **Automatic Arm stays disabled:** expected until stable upright logs have been reviewed and `kAutomaticSwingUpEnabled` is deliberately set true.
-- **Motion stops after releasing Space or changing tabs:** expected dead-man behavior. A successfully delivered release returns to `DISARMED`; a lost keep-alive produces a fault, which must be acknowledged before saving zero again.
+- **Motion stops after releasing Space or changing tabs:** expected dead-man behavior. A successfully delivered release returns to `DISARMED`; a lost keep-alive produces a fault that must be acknowledged, but its saved zero is retained.
 
 UART is convenient and removes the CAN transceiver, but ODrive explicitly describes its Arduino UART library/protocol path as hobby-oriented and recommends CAN for professional/noisy environments. Do not treat fewer wires as greater fault tolerance.

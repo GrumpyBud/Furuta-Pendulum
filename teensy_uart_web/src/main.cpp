@@ -22,6 +22,11 @@ enum class Mode : uint8_t {
   kFault,
 };
 
+enum class FaultReferencePolicy : uint8_t {
+  kPreserve,
+  kInvalidate,
+};
+
 class ODriveUart {
  public:
   explicit ODriveUart(HardwareSerial& serial) : serial_(serial) {}
@@ -48,12 +53,13 @@ class ODriveUart {
            static_cast<size_t>(body_length + total_length);
   }
 
-  bool request(const char* command, char* response, const size_t response_size) {
+  bool request(const char* command, char* response, const size_t response_size,
+               const uint32_t timeout_us = config::kUartResponseTimeoutUs) {
     drainInput();
     if (!send(command)) return false;
     size_t length = 0;
     const uint32_t started_us = micros();
-    while (micros() - started_us < config::kUartResponseTimeoutUs) {
+    while (micros() - started_us < timeout_us) {
       while (serial_.available() > 0) {
         const char incoming = static_cast<char>(serial_.read());
         if (incoming == '\r') continue;
@@ -85,7 +91,9 @@ class ODriveUart {
                                        velocity_turns_s);
   }
 
-  bool readUnsigned(const char* property, uint32_t& value) {
+  bool readUnsigned(const char* property, uint32_t& value,
+                    const uint32_t timeout_us =
+                        config::kUartResponseTimeoutUs) {
     char command[80]{};
     const int written =
         std::snprintf(command, sizeof(command), "r %s", property);
@@ -93,7 +101,7 @@ class ODriveUart {
       return false;
     }
     char response[48]{};
-    if (!request(command, response, sizeof(response))) return false;
+    if (!request(command, response, sizeof(response), timeout_us)) return false;
     char* end = nullptr;
     const unsigned long parsed = std::strtoul(response, &end, 0);
     while (end != nullptr && *end == ' ') ++end;
@@ -230,7 +238,8 @@ bool zero_valid = false;
 bool odrive_online = false;
 bool encoder_healthy = false;
 bool browser_deadman_held = false;
-char fault_reason[64]{};
+char fault_reason[112]{};
+char odrive_arm_failure[112]{};
 char command_buffer[128]{};
 size_t command_length = 0;
 
@@ -270,16 +279,31 @@ void requestIdle() {
   static_cast<void>(odrive.setTorque(0.0F));
   static_cast<void>(
       odrive.writeProperty("axis0.requested_state", "1"));  // IDLE
+  // If UART is healthy, do not leave a previously armed watchdog running while
+  // deliberately idle. If UART is broken these writes cannot arrive, so the
+  // already-running ODrive watchdog still provides the intended fallback.
+  static_cast<void>(
+      odrive.writeProperty("axis0.config.enable_watchdog", "0"));
   commanded_torque_nm = 0.0F;
 }
 
-void enterFault(const char* reason) {
+void enterFault(
+    const char* reason,
+    const FaultReferencePolicy reference_policy =
+        FaultReferencePolicy::kPreserve) {
   if (mode == Mode::kFault) return;
   requestIdle();
   mode = Mode::kFault;
-  zero_valid = false;
+  const bool invalidated_zero =
+      zero_valid &&
+      reference_policy == FaultReferencePolicy::kInvalidate;
+  if (invalidated_zero) zero_valid = false;
   std::snprintf(fault_reason, sizeof(fault_reason), "%s", reason);
   event("ERROR", "FAULT", fault_reason);
+  if (invalidated_zero) {
+    event("WARN", "ZERO_INVALIDATED",
+          "sensor or drive-reference integrity was lost; save zero again");
+  }
 }
 
 bool readODriveFeedback() {
@@ -332,17 +356,21 @@ bool stateIsHealthy(const uint32_t now_us) {
   } else if (!encoder_healthy ||
              consecutive_encoder_errors >=
                  config::kMaximumConsecutiveEncoderErrors) {
-    enterFault("AS5048A encoder unhealthy");
+    enterFault("AS5048A encoder unhealthy",
+               FaultReferencePolicy::kInvalidate);
   } else if (!odrive_online ||
              now_us - last_feedback_us > config::kFeedbackTimeoutUs) {
-    enterFault("ODrive UART feedback timeout");
+    enterFault("ODrive UART feedback timeout",
+               FaultReferencePolicy::kInvalidate);
   } else if (odrive_active_errors != 0U) {
-    enterFault("ODrive reports an active error");
+    enterFault("ODrive reports an active error",
+               FaultReferencePolicy::kInvalidate);
   } else if (!std::isfinite(state.arm_angle_rad) ||
              !std::isfinite(state.pendulum_angle_rad) ||
              !std::isfinite(state.arm_velocity_rad_s) ||
              !std::isfinite(state.pendulum_velocity_rad_s)) {
-    enterFault("non-finite sensor value");
+    enterFault("non-finite sensor value",
+               FaultReferencePolicy::kInvalidate);
   } else if (furuta::projectedAbsoluteTravel(
                  state.arm_angle_rad, state.arm_velocity_rad_s,
                  config::kArmTravelPredictionSeconds) >
@@ -376,7 +404,10 @@ void pollODriveHealth(const uint32_t now_ms) {
   uint32_t errors = 0;
   if (!odrive.readUnsigned("axis0.active_errors", errors)) {
     odrive_online = false;
-    if (isActive()) enterFault("ODrive health query failed");
+    if (isActive()) {
+      enterFault("ODrive health query failed",
+                 FaultReferencePolicy::kInvalidate);
+    }
     return;
   }
   odrive_active_errors = errors;
@@ -397,7 +428,10 @@ void runControlTick() {
   if (health_poll_due) {
     pollODriveHealth(now_ms);
   } else if (isActive()) {
-    if (!readODriveFeedback()) enterFault("ODrive UART feedback failed");
+    if (!readODriveFeedback()) {
+      enterFault("ODrive UART feedback failed",
+                 FaultReferencePolicy::kInvalidate);
+    }
   } else if (now_ms - last_inactive_feedback_ms >= 20U) {
     last_inactive_feedback_ms = now_ms;
     static_cast<void>(readODriveFeedback());
@@ -413,7 +447,8 @@ void runControlTick() {
   if (!sampleEncoder(dt_s)) {
     if (isActive() && consecutive_encoder_errors >=
                           config::kMaximumConsecutiveEncoderErrors) {
-      enterFault("AS5048A repeated read errors");
+      enterFault("AS5048A repeated read errors",
+                 FaultReferencePolicy::kInvalidate);
     }
     return;
   }
@@ -476,7 +511,8 @@ void runControlTick() {
   // State and gains use the configured positive arm coordinate. Convert the
   // logical torque back into the ODrive encoder/motor coordinate here.
   if (!odrive.setTorque(commanded_torque_nm * config::kMotorDirection)) {
-    enterFault("ODrive UART torque write failed");
+    enterFault("ODrive UART torque write failed",
+               FaultReferencePolicy::kInvalidate);
   }
 }
 
@@ -498,41 +534,105 @@ bool parseStrictFloat(const char* text, float& value) {
 }
 
 bool armODrive() {
-  odrive.drainInput();
-  if (!odrive.clearErrors() ||
-      !odrive.writeProperty("axis0.config.watchdog_timeout",
-                            config::kODriveWatchdogSeconds) ||
-      !odrive.writeProperty("axis0.config.enable_watchdog", "1") ||
-      !odrive.writeProperty("axis0.controller.config.input_mode", "1") ||
-      !odrive.writeProperty("axis0.controller.config.control_mode", "1") ||
-      !odrive.setTorque(0.0F) ||
-      !odrive.writeProperty("axis0.requested_state", "8")) {
+  odrive_arm_failure[0] = '\0';
+  const auto fail = [](const char* reason) {
+    std::snprintf(odrive_arm_failure, sizeof(odrive_arm_failure), "%s",
+                  reason);
+    requestIdle();
     return false;
+  };
+
+  odrive.drainInput();
+  // Disable a watchdog left over from an earlier interrupted trial before
+  // clearing errors. Enabling it before these UART verification transactions
+  // can make the 50 ms timer expire during the arming procedure itself.
+  if (!odrive.writeProperty("axis0.config.enable_watchdog", "0")) {
+    return fail("ODrive UART failed while disabling the stale watchdog");
   }
-  delay(20);
+  if (!odrive.clearErrors()) {
+    return fail("ODrive UART failed while clearing errors before arming");
+  }
+  if (!odrive.writeProperty("axis0.config.watchdog_timeout",
+                            config::kODriveWatchdogSeconds)) {
+    return fail("ODrive rejected the watchdog timeout");
+  }
+  if (!odrive.writeProperty("axis0.controller.config.input_mode", "1")) {
+    return fail("ODrive rejected torque passthrough input mode");
+  }
+  if (!odrive.writeProperty("axis0.controller.config.control_mode", "1")) {
+    return fail("ODrive rejected torque control mode");
+  }
+  if (!odrive.setTorque(0.0F)) {
+    return fail("ODrive UART failed while writing zero torque");
+  }
+  if (!odrive.writeProperty("axis0.requested_state", "8")) {
+    return fail("ODrive UART failed while requesting closed-loop state");
+  }
+
+  delay(30);
   uint32_t watchdog_enabled = 0;
   uint32_t control_mode = 0;
   uint32_t input_mode = 0;
   uint32_t current_state = 0;
   uint32_t active_errors = 0;
-  if (!odrive.readUnsigned("axis0.config.enable_watchdog",
-                           watchdog_enabled) ||
-      !odrive.readUnsigned("axis0.controller.config.control_mode",
-                           control_mode) ||
-      !odrive.setTorque(0.0F) ||
-      !odrive.readUnsigned("axis0.controller.config.input_mode", input_mode) ||
-      !odrive.readUnsigned("axis0.current_state", current_state) ||
-      !odrive.readUnsigned("axis0.active_errors", active_errors)) {
-    return false;
+  if (!odrive.readUnsigned("axis0.controller.config.control_mode",
+                           control_mode,
+                           config::kUartConfigurationResponseTimeoutUs)) {
+    return fail("ODrive did not answer the control-mode verification query");
   }
+  if (!odrive.readUnsigned("axis0.controller.config.input_mode", input_mode,
+                           config::kUartConfigurationResponseTimeoutUs)) {
+    return fail("ODrive did not answer the input-mode verification query");
+  }
+  if (!odrive.readUnsigned("axis0.current_state", current_state,
+                           config::kUartConfigurationResponseTimeoutUs)) {
+    return fail("ODrive did not answer the axis-state verification query");
+  }
+  if (!odrive.readUnsigned("axis0.active_errors", active_errors,
+                           config::kUartConfigurationResponseTimeoutUs)) {
+    return fail("ODrive did not answer the active-error verification query");
+  }
+
   odrive_active_errors = active_errors;
   commanded_torque_nm = 0.0F;
-  if (watchdog_enabled != 1U || control_mode != 1U || input_mode != 1U ||
-      current_state != 8U || active_errors != 0U ||
-      !odrive.setTorque(0.0F)) {
+  if (active_errors != 0U || current_state != 8U) {
+    std::snprintf(odrive_arm_failure, sizeof(odrive_arm_failure),
+                  "ODrive closed-loop refusal: state %lu, errors 0x%08lX",
+                  static_cast<unsigned long>(current_state),
+                  static_cast<unsigned long>(active_errors));
+    requestIdle();
     return false;
   }
-  return readODriveFeedback();
+  if (control_mode != 1U || input_mode != 1U) {
+    std::snprintf(odrive_arm_failure, sizeof(odrive_arm_failure),
+                  "ODrive mode mismatch: control %lu, input %lu",
+                  static_cast<unsigned long>(control_mode),
+                  static_cast<unsigned long>(input_mode));
+    requestIdle();
+    return false;
+  }
+
+  // Start the short hardware watchdog only after closed-loop state and the
+  // zero-torque modes are proven. Feed it immediately before further reads.
+  if (!odrive.writeProperty("axis0.config.enable_watchdog", "1") ||
+      !odrive.setTorque(0.0F)) {
+    return fail("ODrive UART failed while starting the verified watchdog");
+  }
+  if (!odrive.readUnsigned("axis0.config.enable_watchdog",
+                           watchdog_enabled,
+                           config::kUartConfigurationResponseTimeoutUs)) {
+    return fail("ODrive did not answer the watchdog verification query");
+  }
+  if (watchdog_enabled != 1U) {
+    return fail("ODrive watchdog did not enable after closed-loop entry");
+  }
+  if (!readODriveFeedback()) {
+    return fail("ODrive feedback failed immediately after closed-loop entry");
+  }
+  if (!odrive.setTorque(0.0F)) {
+    return fail("ODrive zero-torque watchdog feed failed after arming");
+  }
+  return true;
 }
 
 void disarm(const bool acknowledge_fault) {
@@ -574,6 +674,45 @@ void zeroSystem() {
   event("INFO", "ZEROED", "reference saved; pendulum must have been hanging down");
 }
 
+void clearODriveErrors() {
+  if (isActive()) {
+    event("WARN", "REFUSED", "disarm motor control before clearing ODrive errors");
+    return;
+  }
+
+  // Keep this action fail-safe: first request zero torque and IDLE, then clear
+  // the drive's latched errors, and finally read back the live error mask. A
+  // successful UART write alone is not proof that the underlying fault cleared.
+  requestIdle();
+  delay(10);
+  if (!odrive.clearErrors()) {
+    odrive_online = false;
+    event("ERROR", "ODRIVE_CLEAR_FAILED", "UART write failed while clearing ODrive errors");
+    return;
+  }
+
+  delay(20);
+  uint32_t errors = 0;
+  if (!odrive.readUnsigned("axis0.active_errors", errors)) {
+    odrive_online = false;
+    event("ERROR", "ODRIVE_CLEAR_FAILED", "ODrive did not answer the verification query");
+    return;
+  }
+
+  odrive_online = true;
+  odrive_active_errors = errors;
+  if (errors == 0U) {
+    event("INFO", "ODRIVE_CLEARED", "ODrive active errors are now clear");
+    return;
+  }
+
+  char message[80]{};
+  std::snprintf(message, sizeof(message),
+                "underlying condition remains; active errors 0x%08lX",
+                static_cast<unsigned long>(errors));
+  event("WARN", "ODRIVE_ERRORS_REMAIN", message);
+}
+
 void executeCommand() {
   command_buffer[command_length] = '\0';
   char original[sizeof(command_buffer)]{};
@@ -584,6 +723,8 @@ void executeCommand() {
 
   if (std::strcmp(verb, "disarm") == 0) {
     disarm(true);
+  } else if (std::strcmp(verb, "odrive_clear") == 0) {
+    clearODriveErrors();
   } else if (std::strcmp(verb, "deadman_hold") == 0) {
     browser_deadman_held = true;
     browser_deadman_ms = millis();
@@ -657,7 +798,9 @@ void executeCommand() {
                    config::kTuningStartRateRadS) {
       event("WARN", "REFUSED", "hold pendulum nearly upright and motionless");
     } else if (!armODrive()) {
-      enterFault("ODrive refused tuning arm request");
+      enterFault(odrive_arm_failure[0] == '\0'
+                     ? "ODrive refused tuning arm request"
+                     : odrive_arm_failure);
     } else {
       mode = Mode::kTuning;
       tuning_started_ms = millis();
@@ -678,7 +821,9 @@ void executeCommand() {
                !browserDeadmanFresh(millis())) {
       event("WARN", "REFUSED", "setup checks are incomplete");
     } else if (!armODrive()) {
-      enterFault("ODrive refused closed-loop control");
+      enterFault(odrive_arm_failure[0] == '\0'
+                     ? "ODrive refused closed-loop control"
+                     : odrive_arm_failure);
     } else {
       mode = Mode::kSwingUp;
       run_started_ms = millis();
@@ -687,7 +832,7 @@ void executeCommand() {
   } else if (std::strcmp(verb, "status") == 0) {
     last_telemetry_ms = 0;
   } else if (std::strcmp(verb, "help") == 0) {
-    event("INFO", "HELP", "zero | test_start | test_stop | gains a p av pv | deadman_hold | deadman_release | tune_start CONFIRM | arm CONFIRM | disarm | status");
+    event("INFO", "HELP", "zero | odrive_clear | test_start | test_stop | gains a p av pv | deadman_hold | deadman_release | tune_start CONFIRM | arm CONFIRM | disarm | status");
   } else {
     event("WARN", "UNKNOWN", original);
   }
@@ -776,7 +921,10 @@ void loop() {
   }
 
   const uint32_t now_ms = millis();
-  if (now_ms - last_telemetry_ms >= config::kTelemetryPeriodMs) {
+  const uint32_t telemetry_period_ms =
+      mode == Mode::kTuning ? config::kTuningTelemetryPeriodMs
+                            : config::kTelemetryPeriodMs;
+  if (now_ms - last_telemetry_ms >= telemetry_period_ms) {
     last_telemetry_ms = now_ms;
     printTelemetry();
   }

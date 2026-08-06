@@ -223,8 +223,8 @@ actual ODrive value rather than silently assuming the motor label is exact.
 
 - Physical arm travel left/right from centre: **TODO**
 - Desired software travel limit: currently `2.4 rad` (`137.5 degrees`)
-- Verified `kMotorDirection`: **TODO**
-- Verified `kPendulumDirection`: **TODO**
+- Verified `kMotorDirection`: `+1`; whole-arm clockwise motion increases the dashboard arm coordinate
+- Verified `kPendulumDirection`: `-1`; raw encoder value decreases for pendulum clockwise motion, and the observed coupling is arm CW -> pendulum CW / arm CCW -> pendulum CCW
 - Typical dashboard `loop_us`: **TODO**
 - Worst dashboard `max_loop_us` over several minutes: **TODO**
 - Arm and pendulum friction/decay observations: **TODO**

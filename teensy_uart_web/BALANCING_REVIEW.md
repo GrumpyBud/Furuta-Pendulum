@@ -95,15 +95,17 @@ K = [-0.09140, +1.44432, -0.06921, +0.13886]
 tau = -K*x
 ```
 
-The default first-trial profile is `0.65*K`, or approximately
-`[-0.05941, +0.93881, -0.04498, +0.09026]`. The web page also offers the exact
-nominal profile and a bounded `1.15*K` profile. A sweep over upright yaw inertia
+The original first-trial profile was `0.65*K`, or approximately
+`[-0.05941, +0.93881, -0.04498, +0.09026]`. After guarded hardware tuning, the
+firmware default is `[-0.07000, +1.60000, -0.06920, +0.09000]`; the web page
+also retains the conservative, exact nominal, and bounded `1.15*K` profiles.
+A sweep over upright yaw inertia
 from `0.00510` to `0.00620 kg m^2` leaves the nominal linear poles in the stable
 half-plane, but that is a robustness check—not proof of stability on hardware.
 The design can be reproduced with `tools/design_balance_lqr.py`.
 
-The implementation review also augmented the sampled plant with the actual
-35 Hz pendulum-rate filter and, separately, a pessimistic full one-sample
+The original implementation review also augmented the sampled plant with its
+then-current 35 Hz pendulum-rate filter and, separately, a pessimistic full one-sample
 `5 ms` actuator delay. For all three UI profiles and both endpoints of the yaw
 inertia interval, the largest discrete pole magnitude remained below `0.990`.
 A sampled linear simulation including the `0.1225 N m` tuning clamp and
@@ -111,6 +113,10 @@ A sampled linear simulation including the `0.1225 N m` tuning clamp and
 start box without crossing the `0.32 rad` abort or predicted arm-travel limit.
 This checks the code/model interaction near upright; it does not model backlash,
 flex, motor current-loop dynamics, nonlinear motion, or sensor mounting error.
+Three subsequent hands-off hardware trials reached the full 8 s commissioning
+window. Their rapid torque reversals motivated reducing the filter to 25 Hz;
+that hardware-tuned configuration must pass the new 20 s guarded window before
+automatic swing-up is unlocked.
 
 Runtime gain commands are defense-in-depth checked twice: every magnitude must
 remain below a hard absolute cap, and each signed term must be between 50% and
@@ -202,9 +208,13 @@ Active control faults on:
 - non-finite state;
 - predicted arm travel stopping margin, arm speed, or pendulum speed limit;
 - repeated control deadline misses;
-- tuning eight-second timeout or exit from its narrow upright region.
+- tuning twenty-second timeout or exit from its narrow upright region.
 
-Boot requests zero torque/idle and starts disarmed. Faults invalidate the saved zero so a stale reference cannot be reused casually.
+Boot requests zero torque/idle and starts disarmed. Recoverable motion-envelope,
+catch-region, timeout, deadline, and dead-man faults preserve the saved zero
+because neither absolute encoder reference changed. Encoder corruption,
+non-finite sensor data, an ODrive active error, or lost ODrive feedback
+invalidate zero so a potentially stale reference cannot be reused.
 
 ## Verification performed without hardware
 

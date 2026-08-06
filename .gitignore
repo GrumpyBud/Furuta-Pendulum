@@ -1,4 +1,5 @@
 .pio/
+.pio-venv/
 .vscode/
 *.log
 __pycache__/
@@ -6,5 +7,6 @@ __pycache__/
 .pytest_cache/
 .venv/
 build/
+analysis/furuta_run_2026-08-06/
 *.egg-info/
 raspberry_pi_usb/config.toml
