@@ -123,12 +123,10 @@ remain below a hard absolute cap, and each signed term must be between 50% and
 150% of the corresponding reviewed LQR term. A serial command cannot restore the
 old sign pattern or submit an opposite-sign controller while tuning is unlocked.
 
-`kControlDirectionVerified` remains `false`, so powered upright tuning is still
-compile-time locked. The final motor-disabled test must establish the coupling
-sign expected by this model; flipping gain signs is not an acceptable substitute.
-Automatic swing-up has a second, independent `kAutomaticSwingUpEnabled` lock and
-must remain disabled until repeated upright trials and their telemetry are
-reviewed.
+The hardware coupling direction has now been verified and
+`kControlDirectionVerified` is `true`. Guarded swing-up commissioning has its
+own `kSwingTuningEnabled` gate; unrestricted automatic swing-up remains behind
+the independent `kAutomaticSwingUpEnabled` lock.
 
 ## Swing-up controller
 
@@ -150,9 +148,9 @@ It pumps toward the upright energy and naturally changes phase through the swing
 tau = tau_energy - k_d*theta_dot - k_c*theta
 ```
 
-Because the continuous energy term is exactly zero when the pendulum is perfectly motionless at the bottom, automatic run begins with a small positive/negative bounded arm nudge. This removes the mathematical deadlock without requiring encoder noise. The nudge is still real motion and begins immediately after confirmed arming. The energy gain and startup nudge remain empirical; the separate automatic-swing-up interlock prevents them from running merely because upright tuning has been unlocked.
+Because the continuous energy term is exactly zero when the pendulum is perfectly motionless at the bottom, a guarded trial begins with one small positive bounded arm nudge, then immediately hands control to the energy law. This removes the mathematical deadlock without relying on encoder noise or an opposing kick that could remove the energy just added. The nudge is still real motion and begins immediately after confirmed arming.
 
-The swing-up torque is separately clamped below the normal maximum. Arm centring was added because damping alone does not prevent slow arm drift into a travel stop.
+Guarded swing-up and its balance catch are clamped to the same 4 A-equivalent `0.1225 N m` limit used for upright tuning. The trial also requires the arm within `0.35 rad`, the pendulum within `0.18 rad` of hanging down, low arm/pendulum rates, a focused Spacebar dead-man, and stops after 20 seconds. Runtime energy gain, arm damping, arm centring, and startup nudge are nonnegative and bounded in both the browser and firmware. Unrestricted automatic mode retains its separate higher clamps but remains disabled.
 
 ## Switching and saturation
 
@@ -163,8 +161,9 @@ Every controller path reaches a final torque clamp and slew limiter. Tuning has 
 After the `18 A` ODrive hard limit was reported, the old `0.75 N m` firmware
 clamp was found to correspond to `24.49 A` at the measured torque constant. The
 commissioning clamps are now defined in current units and converted to torque:
-`10.0 A` overall, `6.5 A` swing-up, and `4.0 A` tuning. The resulting torque
-limits are approximately `0.3063`, `0.1991`, and `0.1225 N m`, respectively.
+`10.0 A` overall, `6.5 A` unrestricted swing-up, and `4.0 A` for both upright
+and guarded swing-up tuning. The resulting torque limits are approximately
+`0.3063`, `0.1991`, and `0.1225 N m`, respectively.
 
 ## Timing and transport review
 
@@ -208,7 +207,8 @@ Active control faults on:
 - non-finite state;
 - predicted arm travel stopping margin, arm speed, or pendulum speed limit;
 - repeated control deadline misses;
-- tuning twenty-second timeout or exit from its narrow upright region.
+- upright-tuning twenty-second timeout or exit from its narrow region;
+- guarded swing-up twenty-second timeout.
 
 Boot requests zero torque/idle and starts disarmed. Recoverable motion-envelope,
 catch-region, timeout, deadline, and dead-man faults preserve the saved zero

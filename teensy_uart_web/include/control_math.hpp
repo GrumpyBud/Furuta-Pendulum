@@ -61,6 +61,31 @@ struct Gains {
   float pendulum_velocity;
 };
 
+struct SwingSettings {
+  float energy_gain;
+  float arm_damping;
+  float arm_centering;
+  float startup_kick_nm;
+};
+
+inline bool swingSettingsWithinLimits(const SwingSettings& candidate,
+                                      const SwingSettings& limits) {
+  const float candidate_values[] = {
+      candidate.energy_gain, candidate.arm_damping,
+      candidate.arm_centering, candidate.startup_kick_nm};
+  const float limit_values[] = {
+      limits.energy_gain, limits.arm_damping,
+      limits.arm_centering, limits.startup_kick_nm};
+  for (size_t index = 0; index < 4U; ++index) {
+    if (!std::isfinite(candidate_values[index]) ||
+        candidate_values[index] < 0.0F ||
+        candidate_values[index] > limit_values[index]) {
+      return false;
+    }
+  }
+  return true;
+}
+
 inline bool gainsWithinAbsoluteLimits(const Gains& candidate,
                                       const Gains& limits) {
   return std::isfinite(candidate.arm_angle) &&

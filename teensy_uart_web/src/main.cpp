@@ -210,6 +210,7 @@ PendulumEncoder encoder;
 Mode mode = Mode::kDisarmed;
 furuta::State state{};
 furuta::Gains gains = config::kDefaultBalanceGains;
+furuta::SwingSettings swing_settings = config::kDefaultSwingSettings;
 as5048a::Diagnostics encoder_diagnostics{};
 uint16_t pendulum_count = 0;
 uint16_t pendulum_down_count = 0;
@@ -238,6 +239,7 @@ bool zero_valid = false;
 bool odrive_online = false;
 bool encoder_healthy = false;
 bool browser_deadman_held = false;
+bool guarded_swing_trial = false;
 char fault_reason[112]{};
 char odrive_arm_failure[112]{};
 char command_buffer[128]{};
@@ -294,6 +296,7 @@ void enterFault(
   if (mode == Mode::kFault) return;
   requestIdle();
   mode = Mode::kFault;
+  guarded_swing_trial = false;
   const bool invalidated_zero =
       zero_valid &&
       reference_policy == FaultReferencePolicy::kInvalidate;
@@ -469,6 +472,11 @@ void runControlTick() {
         furuta::balanceTorque(state, gains), -config::kTuningTorqueLimitNm,
         config::kTuningTorqueLimitNm);
   } else {
+    if (guarded_swing_trial &&
+        now_ms - run_started_ms > config::kSwingTuningMaximumRunMs) {
+      enterFault("swing-up tuning time limit reached");
+      return;
+    }
     if (mode == Mode::kSwingUp &&
         std::fabs(state.pendulum_angle_rad) < config::kCatchAngleRad &&
         std::fabs(state.pendulum_velocity_rad_s) <
@@ -485,21 +493,24 @@ void runControlTick() {
       requested_torque = furuta::balanceTorque(state, gains);
     } else {
       const uint32_t startup_elapsed_ms = now_ms - run_started_ms;
-      if (startup_elapsed_ms < 2U * config::kSwingStartupKickPhaseMs) {
-        requested_torque =
-            startup_elapsed_ms < config::kSwingStartupKickPhaseMs
-                ? config::kSwingStartupKickNm
-                : -config::kSwingStartupKickNm;
+      if (startup_elapsed_ms < config::kSwingStartupKickPhaseMs) {
+        requested_torque = swing_settings.startup_kick_nm;
       } else {
         requested_torque = furuta::swingUpTorque(
             state, config::kPendulumMassKg, config::kPendulumComLengthM,
-            config::kPendulumInertiaKgM2, config::kSwingEnergyGain,
-            config::kSwingArmDamping);
+            config::kPendulumInertiaKgM2, swing_settings.energy_gain,
+            swing_settings.arm_damping);
       }
-      requested_torque -= config::kSwingArmCentering * state.arm_angle_rad;
+      requested_torque -=
+          swing_settings.arm_centering * state.arm_angle_rad;
       requested_torque = furuta::clamp(
           requested_torque, -config::kSwingTorqueLimitNm,
           config::kSwingTorqueLimitNm);
+    }
+    if (guarded_swing_trial) {
+      requested_torque = furuta::clamp(
+          requested_torque, -config::kSwingTuningTorqueLimitNm,
+          config::kSwingTuningTorqueLimitNm);
     }
     requested_torque = furuta::clamp(
         requested_torque, -config::kTorqueLimitNm, config::kTorqueLimitNm);
@@ -645,6 +656,7 @@ void disarm(const bool acknowledge_fault) {
         odrive.writeProperty("axis0.config.enable_watchdog", "0"));
   }
   mode = Mode::kDisarmed;
+  guarded_swing_trial = false;
   commanded_torque_nm = 0.0F;
   if (acknowledge_fault) fault_reason[0] = '\0';
   event("INFO", "DISARMED", "motor requested idle");
@@ -780,6 +792,33 @@ void executeCommand() {
     }
     gains = candidate;
     event("INFO", "GAINS", "runtime gains accepted; they reset on reboot");
+  } else if (std::strcmp(verb, "swing_settings") == 0) {
+    if (mode != Mode::kDisarmed && mode != Mode::kTest) {
+      event("WARN", "REFUSED", "change swing settings only while motor is disabled");
+      return;
+    }
+    char* values[4]{};
+    for (size_t index = 0; index < 4U; ++index) {
+      values[index] = strtok_r(nullptr, " ", &save);
+    }
+    if (values[0] == nullptr || values[1] == nullptr ||
+        values[2] == nullptr || values[3] == nullptr ||
+        strtok_r(nullptr, " ", &save) != nullptr) {
+      event("WARN", "BAD_SWING", "energy damping centering kick are required");
+      return;
+    }
+    furuta::SwingSettings candidate{};
+    if (!parseStrictFloat(values[0], candidate.energy_gain) ||
+        !parseStrictFloat(values[1], candidate.arm_damping) ||
+        !parseStrictFloat(values[2], candidate.arm_centering) ||
+        !parseStrictFloat(values[3], candidate.startup_kick_nm) ||
+        !furuta::swingSettingsWithinLimits(
+            candidate, config::kSwingSettingLimits)) {
+      event("WARN", "BAD_SWING", "swing values exceed firmware limits");
+      return;
+    }
+    swing_settings = candidate;
+    event("INFO", "SWING_SETTINGS", "runtime swing settings accepted");
   } else if (std::strcmp(verb, "tune_start") == 0) {
     const char* confirmation = strtok_r(nullptr, " ", &save);
     if (mode != Mode::kDisarmed && mode != Mode::kTest) {
@@ -806,6 +845,39 @@ void executeCommand() {
       tuning_started_ms = millis();
       event("WARN", "TUNING", "low-torque Space dead-man tuning active");
     }
+  } else if (std::strcmp(verb, "swing_start") == 0) {
+    const char* confirmation = strtok_r(nullptr, " ", &save);
+    const float down_error =
+        std::fabs(std::fabs(state.pendulum_angle_rad) - furuta::kPi);
+    if (mode != Mode::kDisarmed) {
+      event("WARN", "REFUSED", "disarm before a swing-up tuning trial");
+    } else if (!config::kSwingTuningEnabled ||
+               !config::kMechanismSetupComplete) {
+      event("WARN", "REFUSED", "guarded swing-up tuning is locked");
+    } else if (confirmation == nullptr ||
+               std::strcmp(confirmation, "CONFIRM") != 0) {
+      event("WARN", "REFUSED", "swing-up tuning confirmation missing");
+    } else if (!zero_valid || !encoder_healthy || !odrive_online ||
+               !browserDeadmanFresh(millis())) {
+      event("WARN", "REFUSED", "setup checks are incomplete");
+    } else if (down_error > config::kSwingStartDownToleranceRad ||
+               std::fabs(state.pendulum_velocity_rad_s) >
+                   config::kSwingStartPendulumRateRadS ||
+               std::fabs(state.arm_angle_rad) >
+                   config::kSwingStartArmAngleRad ||
+               std::fabs(state.arm_velocity_rad_s) >
+                   config::kSwingStartArmRateRadS) {
+      event("WARN", "REFUSED", "center arm and hold pendulum down and motionless");
+    } else if (!armODrive()) {
+      enterFault(odrive_arm_failure[0] == '\0'
+                     ? "ODrive refused guarded swing-up request"
+                     : odrive_arm_failure);
+    } else {
+      guarded_swing_trial = true;
+      mode = Mode::kSwingUp;
+      run_started_ms = millis();
+      event("WARN", "SWING_TUNING", "guarded low-torque swing-up trial active");
+    }
   } else if (std::strcmp(verb, "arm") == 0) {
     const char* confirmation = strtok_r(nullptr, " ", &save);
     if (mode != Mode::kDisarmed) {
@@ -825,6 +897,7 @@ void executeCommand() {
                      ? "ODrive refused closed-loop control"
                      : odrive_arm_failure);
     } else {
+      guarded_swing_trial = false;
       mode = Mode::kSwingUp;
       run_started_ms = millis();
       event("WARN", "ARMED", "automatic swing-up and balance active");
@@ -832,7 +905,7 @@ void executeCommand() {
   } else if (std::strcmp(verb, "status") == 0) {
     last_telemetry_ms = 0;
   } else if (std::strcmp(verb, "help") == 0) {
-    event("INFO", "HELP", "zero | odrive_clear | test_start | test_stop | gains a p av pv | deadman_hold | deadman_release | tune_start CONFIRM | arm CONFIRM | disarm | status");
+    event("INFO", "HELP", "zero | odrive_clear | gains a p av pv | swing_settings energy damping centering kick | tune_start CONFIRM | swing_start CONFIRM | arm CONFIRM | disarm | status");
   } else {
     event("WARN", "UNKNOWN", original);
   }
@@ -880,6 +953,12 @@ void printTelemetry() {
   Serial.print(','); Serial.print(maximum_tick_duration_us);
   Serial.print(','); Serial.print(config::kMechanismSetupComplete ? 1 : 0);
   Serial.print(','); Serial.print(config::kAutomaticSwingUpEnabled ? 1 : 0);
+  Serial.print(','); Serial.print(config::kSwingTuningEnabled ? 1 : 0);
+  Serial.print(','); Serial.print(guarded_swing_trial ? 1 : 0);
+  Serial.print(','); Serial.print(swing_settings.energy_gain, 4);
+  Serial.print(','); Serial.print(swing_settings.arm_damping, 4);
+  Serial.print(','); Serial.print(swing_settings.arm_centering, 4);
+  Serial.print(','); Serial.print(swing_settings.startup_kick_nm, 4);
   Serial.print(','); Serial.println(fault_reason[0] == '\0' ? "-" : fault_reason);
 }
 
@@ -892,7 +971,7 @@ void setup() {
   delay(20);
   requestIdle();
   next_control_us = micros() + config::kControlPeriodUs;
-  Serial.println(F("@HELLO,5,Teensy 4.1,ODrive UART,AS5048A SPI"));
+  Serial.println(F("@HELLO,6,Teensy 4.1,ODrive UART,AS5048A SPI"));
   event("INFO", "READY", "controller booted DISARMED; open the setup page");
 }
 
@@ -922,8 +1001,9 @@ void loop() {
 
   const uint32_t now_ms = millis();
   const uint32_t telemetry_period_ms =
-      mode == Mode::kTuning ? config::kTuningTelemetryPeriodMs
-                            : config::kTelemetryPeriodMs;
+      mode == Mode::kTuning || guarded_swing_trial
+          ? config::kTuningTelemetryPeriodMs
+          : config::kTelemetryPeriodMs;
   if (now_ms - last_telemetry_ms >= telemetry_period_ms) {
     last_telemetry_ms = now_ms;
     printTelemetry();

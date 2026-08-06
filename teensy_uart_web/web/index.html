@@ -119,15 +119,27 @@
       </section>
 
       <section id="run" class="page">
-        <div class="section-heading"><div><p class="eyebrow">STEP 4 · AUTOMATIC MOTION</p><h2>Swing up and balance</h2></div></div>
+        <div class="section-heading"><div><p class="eyebrow">STEP 4 · GUARDED SWING-UP TUNING</p><h2>Build energy, catch, and balance</h2></div></div>
         <article class="run-panel">
           <div class="run-readiness"><span id="readinessRing">0/6</span><div><strong id="readinessTitle">Not ready</strong><p id="readinessText">Complete the setup checklist.</p></div></div>
           <div class="run-controls">
-            <button id="armButton" class="button danger" type="button" disabled>Arm automatic motion</button>
+            <button id="swingTrialButton" class="button danger" type="button" disabled>Space starts guarded swing-up</button>
+            <button id="armButton" class="button secondary" type="button" disabled>Full automatic locked</button>
             <button id="disarmButton" class="button stop" type="button" disabled>DISARM / STOP</button>
           </div>
-          <p class="run-copy">Automatic swing-up has a separate firmware interlock. It remains locked until upright trial logs are consistently stable and reviewed. Once deliberately enabled, hold Space before arming and throughout the run; arming starts swing-up immediately.</p>
+          <p id="swingHint" class="run-copy">Center the arm and let the pendulum hang motionless. Holding Space in this focused tab starts a 20-second, 4 A-equivalent guarded trial automatically. Release Space to stop immediately.</p>
         </article>
+        <details class="advanced-gains" open>
+          <summary>Swing-up tuning controls</summary>
+          <p>Change one value at a time while disarmed. The firmware rejects negative or excessive settings.</p>
+          <div class="gain-grid">
+            <label><span><strong>Swing strength</strong><small>How quickly energy is added</small></span><input id="swingEnergyGain" type="number" min="0" max="3" step="0.05" value="0.800"><em>energy</em></label>
+            <label><span><strong>Arm damping</strong><small>Opposes rapid arm motion</small></span><input id="swingArmDamping" type="number" min="0" max="0.12" step="0.005" value="0.030"><em>damping</em></label>
+            <label><span><strong>Arm centering</strong><small>Pulls the arm toward its saved center</small></span><input id="swingArmCentering" type="number" min="0" max="0.12" step="0.005" value="0.040"><em>centering</em></label>
+            <label><span><strong>Startup nudge</strong><small>Initial torque from the hanging position</small></span><input id="swingStartupKick" type="number" min="0" max="0.08" step="0.005" value="0.040"><em>Nm</em></label>
+          </div>
+          <div class="tune-actions"><button id="applySwingButton" class="button secondary" type="button" disabled>Apply swing settings while disarmed</button><p id="swingFeedback">Firmware-safe defaults loaded.</p></div>
+        </details>
         <div class="live-grid compact">
           <article class="metric"><span>Commanded torque</span><strong><b id="torqueValue">—</b> Nm</strong></article>
           <article class="metric"><span>ODrive errors</span><strong id="odriveErrors">—</strong></article>

@@ -80,11 +80,14 @@ constexpr float kVelocityFilterHz = 25.0F;
 // firmware command clamps, not a substitute for matching ODrive limits.
 constexpr float kCommissioningPhaseCurrentLimitAmp = 10.0F;
 constexpr float kSwingPhaseCurrentLimitAmp = 6.5F;
+constexpr float kSwingTuningPhaseCurrentLimitAmp = 4.0F;
 constexpr float kTuningPhaseCurrentLimitAmp = 4.0F;
 constexpr float kTorqueLimitNm =
     kCommissioningPhaseCurrentLimitAmp * kMotorTorqueConstantNmPerAmp;
 constexpr float kSwingTorqueLimitNm =
     kSwingPhaseCurrentLimitAmp * kMotorTorqueConstantNmPerAmp;
+constexpr float kSwingTuningTorqueLimitNm =
+    kSwingTuningPhaseCurrentLimitAmp * kMotorTorqueConstantNmPerAmp;
 constexpr float kTuningTorqueLimitNm =
     kTuningPhaseCurrentLimitAmp * kMotorTorqueConstantNmPerAmp;
 constexpr float kTorqueSlewNmPerSecond = 8.0F;
@@ -108,6 +111,7 @@ constexpr float kTuningStartRateRadS = 1.0F;
 // Three repeatable 8 s hands-off trials passed with the hardware-tuned gains
 // and 25 Hz velocity filter. The next guarded validation window is 20 s.
 constexpr uint32_t kTuningMaximumRunMs = 20000;
+constexpr uint32_t kSwingTuningMaximumRunMs = 20000;
 // The focused browser sends this only while Space is physically held.
 constexpr uint32_t kBrowserDeadmanTimeoutMs = 450;
 
@@ -155,16 +159,22 @@ constexpr bool kMechanismSetupComplete = kControlDirectionVerified;
 // separate interlock is enabled. It prevents unvalidated automatic swing-up.
 constexpr bool kAutomaticSwingUpEnabled = false;
 
-// Swing-up remains independently disabled. These empirical values require
-// nonlinear simulation and guarded hardware validation after upright control.
-constexpr float kSwingEnergyGain = 7.0F;
-constexpr float kSwingArmDamping = 0.08F;
-constexpr float kSwingArmCentering = 0.10F;  // Nm per arm radian
-constexpr float kSwingStartupKickNm = 0.10F;
+// Guarded swing-up commissioning is separate from unrestricted automatic run.
+// It uses the same 4 A phase-current-equivalent clamp as upright tuning, a
+// focused-tab dead-man, centered/down start gates, and a 20 s timeout.
+constexpr bool kSwingTuningEnabled = true;
+constexpr furuta::SwingSettings kDefaultSwingSettings{
+    0.80F, 0.030F, 0.040F, 0.040F};
+constexpr furuta::SwingSettings kSwingSettingLimits{
+    3.00F, 0.120F, 0.120F, 0.080F};
 constexpr uint32_t kSwingStartupKickPhaseMs = 180;
-constexpr float kCatchAngleRad = 0.22F;
+constexpr float kSwingStartDownToleranceRad = 0.18F;
+constexpr float kSwingStartPendulumRateRadS = 0.50F;
+constexpr float kSwingStartArmAngleRad = 0.35F;
+constexpr float kSwingStartArmRateRadS = 0.30F;
+constexpr float kCatchAngleRad = 0.14F;
 constexpr float kDropAngleRad = 0.45F;
-constexpr float kCatchPendulumVelocityRadS = 3.0F;
+constexpr float kCatchPendulumVelocityRadS = 1.5F;
 
 // Discrete LQR at 200 Hz for x=[arm, pendulum, arm_rate, pendulum_rate], with
 // positive pendulum chosen so a positive arm acceleration initially produces a
@@ -197,6 +207,8 @@ static_assert(kCommissioningPhaseCurrentLimitAmp <
                   kODriveConfiguredCurrentHardMaxAmp,
               "firmware current envelope must stay below ODrive hard max");
 static_assert(kTuningPhaseCurrentLimitAmp <= kSwingPhaseCurrentLimitAmp &&
+                  kSwingTuningPhaseCurrentLimitAmp <=
+                      kSwingPhaseCurrentLimitAmp &&
                   kSwingPhaseCurrentLimitAmp <=
                       kCommissioningPhaseCurrentLimitAmp,
               "current limit tiers must be ordered");

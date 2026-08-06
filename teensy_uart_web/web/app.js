@@ -6,8 +6,9 @@
     connectionPill: $("connectionPill"), connectionText: $("connectionText"), connectButton: $("connectButton"),
     modeValue: $("modeValue"), modeExplanation: $("modeExplanation"), globalAlert: $("globalAlert"),
     zeroButton: $("zeroButton"), clearOdriveErrorsButton: $("clearOdriveErrorsButton"), testModeButton: $("testModeButton"), applyGainsButton: $("applyGainsButton"),
-    tuneHoldButton: $("tuneHoldButton"), tuneHint: $("tuneHint"), armButton: $("armButton"), disarmButton: $("disarmButton"),
+    tuneHoldButton: $("tuneHoldButton"), tuneHint: $("tuneHint"), swingTrialButton: $("swingTrialButton"), swingHint: $("swingHint"), armButton: $("armButton"), disarmButton: $("disarmButton"),
     gainArm: $("gainArm"), gainPendulum: $("gainPendulum"), gainArmRate: $("gainArmRate"), gainPendulumRate: $("gainPendulumRate"), gainFeedback: $("gainFeedback"),
+    swingEnergyGain: $("swingEnergyGain"), swingArmDamping: $("swingArmDamping"), swingArmCentering: $("swingArmCentering"), swingStartupKick: $("swingStartupKick"), applySwingButton: $("applySwingButton"), swingFeedback: $("swingFeedback"),
     pendulumDegrees: $("pendulumDegrees"), armDegrees: $("armDegrees"), pendulumRate: $("pendulumRate"), armRate: $("armRate"),
     rawCount: $("rawCount"), agcValue: $("agcValue"), parityErrors: $("parityErrors"), protocolErrors: $("protocolErrors"), loopTiming: $("loopTiming"),
     torqueValue: $("torqueValue"), odriveErrors: $("odriveErrors"), gainSummary: $("gainSummary"),
@@ -25,7 +26,7 @@
   const state = {
     port: null, reader: null, writer: null, connected: false, connecting: false, lineBuffer: "",
     sample: null, history: [], telemetryRows: [], events: [], toastTimer: null, deadmanTimer: null,
-    spaceHeld: false, tuneStartSentForHold: false, demoTimer: null, lastMessageAt: 0
+    spaceHeld: false, tuneStartSentForHold: false, swingStartSentForHold: false, swingInputsDirty: false, demoTimer: null, lastMessageAt: 0
   };
 
   function setConnection(kind, text) {
@@ -67,7 +68,7 @@
   }
 
   function parseTelemetry(parts, original) {
-    if (parts.length < 26) return;
+    if (parts.length < 32) return;
     state.sample = {
       ms: parseNumber(parts[1]), mode: parts[2], arm: parseNumber(parts[3]), pendulum: parseNumber(parts[4]),
       armRate: parseNumber(parts[5]), pendulumRate: parseNumber(parts[6]), torque: parseNumber(parts[7]),
@@ -75,8 +76,14 @@
       count: parseNumber(parts[12]), agc: parseNumber(parts[13]), parity: parseNumber(parts[14]), protocol: parseNumber(parts[15]),
       gains: parts.slice(16, 20).map(parseNumber), odriveErrors: parseNumber(parts[20]),
       loopUs: parseNumber(parts[21]), maximumLoopUs: parseNumber(parts[22]), setup: parts[23] === "1",
-      automatic: parts[24] === "1", fault: parts.slice(25).join(",")
+      automatic: parts[24] === "1", swingTuning: parts[25] === "1", guardedSwing: parts[26] === "1",
+      swing: parts.slice(27, 31).map(parseNumber), fault: parts.slice(31).join(",")
     };
+    if (!state.swingInputsDirty) {
+      [elements.swingEnergyGain, elements.swingArmDamping, elements.swingArmCentering, elements.swingStartupKick].forEach((input, index) => {
+        input.value = state.sample.swing[index].toFixed(3);
+      });
+    }
     state.lastMessageAt = Date.now();
     state.telemetryRows.push(original);
     if (state.telemetryRows.length > 15000) state.telemetryRows.shift();
@@ -99,6 +106,10 @@
       logEvent(`${code}: ${message}`, level === "error" ? "error" : level === "warn" ? "warn" : "info");
       if (level === "error" || code === "REFUSED") toast(message);
       if (code === "GAINS") elements.gainFeedback.textContent = message;
+      if (code === "SWING_SETTINGS") {
+        state.swingInputsDirty = false;
+        elements.swingFeedback.textContent = message;
+      }
       if (code === "ZEROED") toast("Reference position saved");
       if (code === "ODRIVE_CLEARED") toast("ODrive errors cleared");
       if (code === "ODRIVE_ERRORS_REMAIN") toast(message);
@@ -212,6 +223,8 @@
     const mode = sample?.mode || "OFFLINE";
     elements.modeValue.textContent = mode.replaceAll("_", " ");
     elements.modeExplanation.textContent = modeDescriptions[mode] || "Unknown controller state.";
+    if (sample?.guardedSwing && mode === "SWING_UP") elements.modeExplanation.textContent = "Guarded low-torque swing-up tuning is building pendulum energy.";
+    if (sample?.guardedSwing && mode === "BALANCE") elements.modeExplanation.textContent = "Guarded swing-up trial caught upright and is balancing.";
     elements.zeroButton.disabled = !(state.connected && sample && safeMode && ready.encoder && ready.odrive);
     elements.clearOdriveErrorsButton.disabled = !(
       state.connected && sample && sample.odrive && !activeMode && sample.odriveErrors !== 0
@@ -219,17 +232,24 @@
     elements.testModeButton.disabled = !(state.connected && sample && safeMode);
     elements.testModeButton.textContent = mode === "TEST" ? "Leave sensor test" : "Enter sensor test";
     elements.applyGainsButton.disabled = !(state.connected && sample && safeMode);
+    elements.applySwingButton.disabled = !(state.connected && sample && safeMode);
 
     const tuningPositionReady = Boolean(sample && Math.abs(sample.pendulum) < 0.14 && Math.abs(sample.pendulumRate) < 1);
+    const swingStartReady = Boolean(sample &&
+      Math.abs(Math.abs(sample.pendulum) - Math.PI) < 0.18 &&
+      Math.abs(sample.pendulumRate) < 0.5 && Math.abs(sample.arm) < 0.35 &&
+      Math.abs(sample.armRate) < 0.3);
     const allReady = readyCount === 6;
     elements.tuneHoldButton.disabled = !(allReady && safeMode && tuningPositionReady);
     elements.tuneHint.textContent = !allReady ? "Complete every setup check, including holding Space." : !safeMode ? "Disarm before tuning." : !tuningPositionReady ? "Hold the pendulum nearly upright and motionless." : "Ready—holding Space starts the trial automatically.";
+    elements.swingTrialButton.disabled = !(allReady && mode === "DISARMED" && sample?.swingTuning && swingStartReady);
+    elements.swingHint.textContent = !allReady ? "Complete every setup check, including holding Space." : mode !== "DISARMED" ? "Disarm before starting another swing-up trial." : !sample?.swingTuning ? "Guarded swing-up tuning is locked in firmware." : !swingStartReady ? "Center the arm within 20° and hold the pendulum hanging down and motionless." : "Ready—holding Space starts the guarded 20-second trial automatically.";
     elements.armButton.disabled = !(allReady && mode === "DISARMED" && sample.automatic);
     elements.disarmButton.disabled = !(state.connected && sample && (activeMode || mode === "FAULT" || mode === "TEST"));
 
     elements.readinessRing.textContent = `${readyCount}/6`;
-    elements.readinessTitle.textContent = allReady && sample?.automatic ? "Ready to arm" : allReady ? "Swing-up locked" : "Not ready";
-    elements.readinessText.textContent = allReady && sample?.automatic ? "Hardware checks pass and automatic swing-up is deliberately enabled." : allReady ? "Finish and review stable upright trials before enabling automatic swing-up in firmware." : "Complete the setup checklist and hold Space.";
+    elements.readinessTitle.textContent = allReady && sample?.swingTuning ? "Guarded trial ready" : allReady && sample?.automatic ? "Ready to arm" : allReady ? "Swing-up locked" : "Not ready";
+    elements.readinessText.textContent = allReady && sample?.swingTuning ? "Low-torque swing-up commissioning is enabled; full automatic motion remains locked." : allReady && sample?.automatic ? "Hardware checks pass and automatic swing-up is deliberately enabled." : allReady ? "Swing-up remains locked in firmware." : "Complete the setup checklist and hold Space.";
     elements.spaceStatus.classList.toggle("holding", spaceControlIsActive());
     elements.spaceStatus.querySelector("strong").textContent = spaceControlIsActive() ? "SPACE HELD" : "HOLD SPACE";
     elements.spaceStatus.querySelector("small").textContent = spaceControlIsActive() ? "Release to stop motor output" : "Focused-tab dead-man control";
@@ -255,10 +275,13 @@
     elements.torqueValue.textContent = sample.torque.toFixed(3);
     elements.odriveErrors.textContent = sample.odriveErrors === 0 ? "None" : `0x${sample.odriveErrors.toString(16).toUpperCase()}`;
     elements.gainSummary.textContent = sample.gains.map((value) => value.toFixed(2)).join(" · ");
-
     if (tunePageIsActive() && spaceControlIsActive() &&
         !state.tuneStartSentForHold && !elements.tuneHoldButton.disabled) {
       void startTuningTrial(true);
+    }
+    if (runPageIsActive() && spaceControlIsActive() &&
+        !state.swingStartSentForHold && !elements.swingTrialButton.disabled) {
+      void startSwingTrial(true);
     }
   }
 
@@ -320,6 +343,10 @@
     return document.querySelector('.tab.active')?.dataset.page === "tune";
   }
 
+  function runPageIsActive() {
+    return document.querySelector('.tab.active')?.dataset.page === "run";
+  }
+
   function isTextEntry(target) {
     return target instanceof HTMLElement &&
       (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName));
@@ -332,6 +359,7 @@
     if (!state.connected) { toast("Connect the Teensy before using the Space control"); return; }
     state.spaceHeld = true;
     state.tuneStartSentForHold = false;
+    state.swingStartSentForHold = false;
     send("deadman_hold");
     clearInterval(state.deadmanTimer);
     state.deadmanTimer = setInterval(() => {
@@ -345,6 +373,7 @@
     const wasHeld = state.spaceHeld || state.deadmanTimer !== null;
     state.spaceHeld = false;
     state.tuneStartSentForHold = false;
+    state.swingStartSentForHold = false;
     clearInterval(state.deadmanTimer);
     state.deadmanTimer = null;
     if (wasHeld && !skipCommand && state.connected) send("deadman_release");
@@ -364,8 +393,33 @@
     }
   }
 
+  async function applySwingSettings() {
+    const values = [elements.swingEnergyGain, elements.swingArmDamping, elements.swingArmCentering, elements.swingStartupKick].map((input) => Number(input.value));
+    const limits = [3, 0.12, 0.12, 0.08];
+    if (!values.every((value, index) => Number.isFinite(value) && value >= 0 && value <= limits[index])) {
+      toast("A swing-up value is outside the firmware-safe range");
+      return;
+    }
+    if (await send(`swing_settings ${values.join(" ")}`)) {
+      elements.swingFeedback.textContent = "Values sent; waiting for firmware validation…";
+    }
+  }
+
+  async function startSwingTrial(automatic = false) {
+    if (elements.swingTrialButton.disabled || !spaceControlIsActive()) return;
+    state.swingStartSentForHold = true;
+    if (!(await send("deadman_hold"))) {
+      state.swingStartSentForHold = false;
+      return;
+    }
+    if (automatic) toast("Hanging start detected—starting guarded swing-up");
+    if (!(await send("swing_start CONFIRM"))) {
+      state.swingStartSentForHold = false;
+    }
+  }
+
   function downloadCsv() {
-    const header = "record,time_ms,mode,arm_rad,pendulum_rad,arm_rate_rad_s,pendulum_rate_rad_s,torque_nm,browser_deadman_held,odrive_online,encoder_status,zero_valid,encoder_count,agc,parity_errors,protocol_errors,k_arm,k_pendulum,k_arm_rate,k_pendulum_rate,odrive_errors,loop_us,max_loop_us,mechanism_setup_complete,automatic_swing_up_enabled,fault";
+    const header = "record,time_ms,mode,arm_rad,pendulum_rad,arm_rate_rad_s,pendulum_rate_rad_s,torque_nm,browser_deadman_held,odrive_online,encoder_status,zero_valid,encoder_count,agc,parity_errors,protocol_errors,k_arm,k_pendulum,k_arm_rate,k_pendulum_rate,odrive_errors,loop_us,max_loop_us,mechanism_setup_complete,automatic_swing_up_enabled,swing_tuning_enabled,guarded_swing_trial,swing_energy_gain,swing_arm_damping,swing_arm_centering,swing_startup_kick_nm,fault";
     const blob = new Blob([[header, ...state.telemetryRows].join("\n")], { type: "text/csv" });
     const link = document.createElement("a"); link.href = URL.createObjectURL(blob);
     link.download = `furuta-session-${new Date().toISOString().replaceAll(":", "-")}.csv`; link.click();
@@ -377,7 +431,7 @@
     let tick = 0;
     state.demoTimer = setInterval(() => {
       tick += 1; const pendulum = -Math.PI + 0.05 * Math.sin(tick / 12), arm = 0.15 * Math.sin(tick / 30);
-      processLine(`@T,${tick * 40},TEST,${arm},${pendulum},0.02,0.08,0,1,1,OK,1,8192,118,0,0,-0.07000,1.60000,-0.06920,0.09000,0,2100,2900,1,0,-`);
+      processLine(`@T,${tick * 40},TEST,${arm},${pendulum},0.02,0.08,0,1,1,OK,1,8192,118,0,0,-0.07000,1.60000,-0.06920,0.09000,0,2100,2900,1,0,1,0,0.8000,0.0300,0.0400,0.0400,-`);
     }, 40);
     elements.connectButton.textContent = "Demo active"; elements.connectButton.disabled = true;
     logEvent("Demonstration mode started; no commands reach hardware.");
@@ -403,7 +457,12 @@
   });
   elements.testModeButton.addEventListener("click", () => send(state.sample?.mode === "TEST" ? "test_stop" : "test_start"));
   elements.applyGainsButton.addEventListener("click", applyGains);
+  elements.applySwingButton.addEventListener("click", applySwingSettings);
+  [elements.swingEnergyGain, elements.swingArmDamping, elements.swingArmCentering, elements.swingStartupKick].forEach((input) => {
+    input.addEventListener("input", () => { state.swingInputsDirty = true; });
+  });
   elements.tuneHoldButton.addEventListener("click", () => startTuningTrial(false));
+  elements.swingTrialButton.addEventListener("click", () => startSwingTrial(false));
   elements.armButton.addEventListener("click", async () => {
     if (!spaceControlIsActive()) { toast("Hold Space in this tab before arming"); return; }
     if (await send("deadman_hold") && spaceControlIsActive()) send("arm CONFIRM");
