@@ -79,8 +79,8 @@ constexpr float kVelocityFilterHz = 25.0F;
 // converted to torque with the measured ODrive torque constant. These are
 // firmware command clamps, not a substitute for matching ODrive limits.
 constexpr float kCommissioningPhaseCurrentLimitAmp = 10.0F;
-constexpr float kSwingPhaseCurrentLimitAmp = 8.0F;
-constexpr float kSwingTuningPhaseCurrentLimitAmp = 8.0F;
+constexpr float kSwingPhaseCurrentLimitAmp = 10.0F;
+constexpr float kSwingTuningPhaseCurrentLimitAmp = 10.0F;
 constexpr float kTuningPhaseCurrentLimitAmp = 4.0F;
 constexpr float kTorqueLimitNm =
     kCommissioningPhaseCurrentLimitAmp * kMotorTorqueConstantNmPerAmp;
@@ -88,7 +88,7 @@ constexpr float kSwingTorqueLimitNm =
     kSwingPhaseCurrentLimitAmp * kMotorTorqueConstantNmPerAmp;
 constexpr float kSwingTuningTorqueLimitNm =
     kSwingTuningPhaseCurrentLimitAmp * kMotorTorqueConstantNmPerAmp;
-constexpr float kSwingCenteringTorqueLimitNm = 0.180F;
+constexpr float kSwingCenteringTorqueLimitNm = 0.300F;
 constexpr float kTuningTorqueLimitNm =
     kTuningPhaseCurrentLimitAmp * kMotorTorqueConstantNmPerAmp;
 constexpr float kTorqueSlewNmPerSecond = 8.0F;
@@ -161,14 +161,13 @@ constexpr bool kMechanismSetupComplete = kControlDirectionVerified;
 constexpr bool kAutomaticSwingUpEnabled = false;
 
 // Guarded swing-up commissioning is separate from unrestricted automatic run.
-// It uses an 8 A phase-current-equivalent clamp below the configured 10 A
-// ODrive soft limit, a focused-tab dead-man, automatic low-torque preparation,
-// and a 20 s energy phase timeout.
+// It remains clamped by the configured 10 A ODrive soft limit, a focused-tab
+// dead-man, automatic speed-limited preparation, and a 20 s energy timeout.
 constexpr bool kSwingTuningEnabled = true;
 constexpr furuta::SwingSettings kDefaultSwingSettings{
-    0.80F, 0.030F, 0.040F, 0.120F, kSwingTuningTorqueLimitNm};
+    0.80F, 0.030F, 0.040F, 0.180F, 0.300F};
 constexpr furuta::SwingSettings kSwingSettingLimits{
-    8.00F, 0.300F, 0.300F, 0.240F, kSwingTuningTorqueLimitNm};
+    20.00F, 1.000F, 1.000F, 0.300F, 0.300F};
 constexpr uint32_t kSwingStartupKickPhaseMs = 180;
 // A guarded run may begin away from center. A low-torque velocity-limited phase
 // first moves the arm to its saved zero, then holds it until the pendulum is
@@ -179,7 +178,7 @@ constexpr float kSwingPrepositionStartDownToleranceRad = 0.80F;
 constexpr float kSwingPrepositionStartPendulumRateRadS = 2.0F;
 constexpr float kSwingCenterPositionGainPerSecond = 2.50F;
 constexpr float kSwingCenterMaximumVelocityRadS = 0.45F;
-constexpr float kSwingCenterVelocityGainNmPerRadS = 0.400F;
+constexpr float kSwingCenterVelocityGainNmPerRadS = 0.670F;
 constexpr float kSwingCenterAngleToleranceRad = 0.06F;
 constexpr float kSwingCenterRateToleranceRadS = 0.15F;
 constexpr uint32_t kSwingCenterTimeoutMs = 12000;

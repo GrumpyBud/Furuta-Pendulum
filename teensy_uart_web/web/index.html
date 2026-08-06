@@ -127,17 +127,17 @@
             <button id="armButton" class="button secondary" type="button" disabled>Full automatic locked</button>
             <button id="disarmButton" class="button stop" type="button" disabled>DISARM / STOP</button>
           </div>
-          <p id="swingHint" class="run-copy">Let go once the pendulum is generally downward and the arm has stopped. Holding Space makes the controller slowly center the arm, wait for the pendulum to settle, then start a 20-second, 8 A-equivalent guarded swing-up automatically. Release Space to stop immediately.</p>
+          <p id="swingHint" class="run-copy">Let go once the pendulum is generally downward and the arm has stopped. Holding Space makes the controller slowly center the arm, wait for the pendulum to settle, then start a 20-second guarded swing-up with up to 0.300 N·m. Release Space to stop immediately.</p>
         </article>
         <details class="advanced-gains" open>
           <summary>Swing-up tuning controls</summary>
-          <p>Change one value at a time while disarmed. All five controls now expose the full bounded 8 A-equivalent swing envelope; the firmware still applies the final hardware limit.</p>
+          <p>Change one value at a time while disarmed. The firmware always applies the final 0.300 N·m hardware limit.</p>
           <div class="gain-grid">
-            <label><span><strong>Swing strength</strong><small>How quickly energy is added</small></span><input id="swingEnergyGain" type="number" min="0" max="8" step="0.05" value="0.800"><em>energy</em></label>
-            <label><span><strong>Arm damping</strong><small>Opposes rapid arm motion</small></span><input id="swingArmDamping" type="number" min="0" max="0.30" step="0.005" value="0.030"><em>damping</em></label>
-            <label><span><strong>Arm centering</strong><small>Pulls the arm toward its saved center</small></span><input id="swingArmCentering" type="number" min="0" max="0.30" step="0.005" value="0.040"><em>centering</em></label>
-            <label><span><strong>Startup nudge</strong><small>Initial torque from the hanging position</small></span><input id="swingStartupKick" type="number" min="0" max="0.24" step="0.005" value="0.120"><em>Nm</em></label>
-            <label><span><strong>Maximum swing torque</strong><small>Hard ceiling during the energy-building phase</small></span><input id="swingTorqueLimit" type="number" min="0" max="0.245" step="0.005" value="0.245"><em>Nm</em></label>
+            <label><span><strong>Swing strength</strong><small>How quickly energy is added</small></span><input id="swingEnergyGain" type="number" min="0" max="20" step="0.05" value="0.800"><em>energy</em></label>
+            <label><span><strong>Arm damping</strong><small>Opposes rapid arm motion</small></span><input id="swingArmDamping" type="number" min="0" max="1" step="0.005" value="0.030"><em>damping</em></label>
+            <label><span><strong>Arm centering</strong><small>Pulls the arm toward its saved center</small></span><input id="swingArmCentering" type="number" min="0" max="1" step="0.005" value="0.040"><em>centering</em></label>
+            <label><span><strong>Startup nudge</strong><small>Initial torque from the hanging position</small></span><input id="swingStartupKick" type="number" min="0" max="0.30" step="0.005" value="0.180"><em>Nm</em></label>
+            <label><span><strong>Maximum swing torque</strong><small>Hard ceiling during the energy-building phase</small></span><input id="swingTorqueLimit" type="number" min="0" max="0.30" step="0.005" value="0.300"><em>Nm</em></label>
           </div>
           <div class="tune-actions"><button id="applySwingButton" class="button secondary" type="button" disabled>Apply swing settings while disarmed</button><p id="swingFeedback">Firmware-safe defaults loaded.</p></div>
         </details>

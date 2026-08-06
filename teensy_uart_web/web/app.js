@@ -396,12 +396,23 @@
   }
 
   async function applySwingSettings() {
-    const values = [elements.swingEnergyGain, elements.swingArmDamping, elements.swingArmCentering, elements.swingStartupKick, elements.swingTorqueLimit].map((input) => Number(input.value));
-    const limits = [8, 0.30, 0.30, 0.24, 0.245];
-    if (!values.every((value, index) => Number.isFinite(value) && value >= 0 && value <= limits[index])) {
-      toast("A swing-up value is outside the firmware-safe range");
+    const settings = [
+      { name: "Swing strength", input: elements.swingEnergyGain, maximum: 20 },
+      { name: "Arm damping", input: elements.swingArmDamping, maximum: 1 },
+      { name: "Arm centering", input: elements.swingArmCentering, maximum: 1 },
+      { name: "Startup nudge", input: elements.swingStartupKick, maximum: 0.30 },
+      { name: "Maximum swing torque", input: elements.swingTorqueLimit, maximum: 0.30 }
+    ];
+    const invalid = settings.find(({ input, maximum }) => {
+      const value = Number(input.value);
+      return !Number.isFinite(value) || value < 0 || value > maximum;
+    });
+    if (invalid) {
+      toast(`${invalid.name} must be between 0 and ${invalid.maximum}.`);
+      invalid.input.focus();
       return;
     }
+    const values = settings.map(({ input }) => Number(input.value));
     if (await send(`swing_settings ${values.join(" ")}`)) {
       elements.swingFeedback.textContent = "Values sent; waiting for firmware validation…";
     }

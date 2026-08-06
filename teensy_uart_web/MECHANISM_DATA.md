@@ -189,9 +189,10 @@ The firmware command clamps now use the same commissioning envelope explicitly:
 | Mode | Phase-current equivalent | Torque clamp at `0.0306296 N m/A` |
 |---|---:|---:|
 | Absolute maximum | `10.0 A` | `0.3063 N m` |
-| Swing-up (including guarded trials) | `8.0 A` | `0.2450 N m` |
+| Swing-up hard clamp (including guarded trials) | `10.0 A` | `0.3063 N m` |
+| User-selectable swing ceiling | `9.79 A` | `0.3000 N m` |
 | Upright tuning trial | `4.0 A` | `0.1225 N m` |
-| Automatic arm centering | `5.88 A` | `0.1800 N m` |
+| Automatic arm centering | `9.79 A` | `0.3000 N m` |
 
 The previous `0.75 N m` overall clamp would have requested `24.49 A`, above
 the newly reported `18 A` ODrive hard trip, so it was removed. These smaller

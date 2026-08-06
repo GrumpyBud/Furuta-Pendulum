@@ -150,9 +150,9 @@ tau = tau_energy - k_d*theta_dot - k_c*theta
 
 Because the continuous energy term is exactly zero when the pendulum is perfectly motionless at the bottom, the energy phase begins with one small positive bounded arm nudge, then immediately hands control to the energy law. This removes the mathematical deadlock without relying on encoder noise or an opposing kick that could remove the energy just added.
 
-Before that energy phase, the controller performs two explicit preparation states. `CENTERING` uses a cascaded position-to-velocity controller to return the arm to its saved zero, with desired speed limited to `0.45 rad/s` and torque limited to `0.180 N m` (about `5.88 A` phase-current equivalent). The velocity-loop gain is high enough to request the full breakaway torque from rest instead of the ineffective `0.027 N m` produced by the first automatic-centering revision. `SETTLING` holds the same center controller and requires the arm to remain within `0.06 rad` at less than `0.15 rad/s`, and the pendulum to remain within `0.10 rad` of hanging at less than `0.30 rad/s`, continuously for `1.2 s`. Centering and settling each have independent 12-second timeouts. The preparation remains speed-limited and cannot silently consume the separate 20-second energy/balance trial window.
+Before that energy phase, the controller performs two explicit preparation states. `CENTERING` uses a cascaded position-to-velocity controller to return the arm to its saved zero, with desired speed limited to `0.45 rad/s` and torque limited to `0.300 N m` (about `9.79 A` phase-current equivalent). The velocity-loop gain requests that breakaway torque from rest instead of the ineffective `0.027 N m` produced by the first automatic-centering revision. `SETTLING` holds the same center controller and requires the arm to remain within `0.06 rad` at less than `0.15 rad/s`, and the pendulum to remain within `0.10 rad` of hanging at less than `0.30 rad/s`, continuously for `1.2 s`. Centering and settling each have independent 12-second timeouts. The preparation remains speed-limited and cannot silently consume the separate 20-second energy/balance trial window.
 
-The guarded request still has a broad pre-arm envelope: the stopped arm must be within `1.75 rad` of saved center and the pendulum generally downward within `0.80 rad`; rate gates reject an already fast-moving mechanism. Guarded swing-up and its balance catch are clamped to an 8 A-equivalent `0.2450 N m`, below the configured 10 A ODrive soft limit and 18 A hard limit. Upright tuning remains independently limited to 4 A-equivalent `0.1225 N m`. Runtime energy gain, arm damping, arm centring, and startup nudge are nonnegative and bounded in both the browser and firmware. All preparation and active phases require the focused Spacebar dead-man. Unrestricted automatic mode remains disabled.
+The guarded request still has a broad pre-arm envelope: the stopped arm must be within `1.75 rad` of saved center and the pendulum generally downward within `0.80 rad`; rate gates reject an already fast-moving mechanism. Guarded swing-up and its balance catch have a final 10 A-equivalent `0.3063 N m` clamp matching the configured ODrive soft limit, while the user-selectable swing ceiling stops at `0.300 N m`. Upright tuning remains independently limited to 4 A-equivalent `0.1225 N m`. Runtime energy gain, arm damping, arm centring, startup nudge, and swing torque ceiling are nonnegative and bounded in both the browser and firmware. All preparation and active phases require the focused Spacebar dead-man. Unrestricted automatic mode remains disabled.
 
 ## Switching and saturation
 
@@ -163,10 +163,10 @@ Every controller path reaches a final torque clamp and slew limiter. Tuning has 
 After the `18 A` ODrive hard limit was reported, the old `0.75 N m` firmware
 clamp was found to correspond to `24.49 A` at the measured torque constant. The
 commissioning clamps are now defined in current units and converted to torque:
-`10.0 A` overall, `8.0 A` swing-up (including guarded trials), and `4.0 A` for
-upright tuning. The resulting torque limits are approximately `0.3063`,
-`0.2450`, and `0.1225 N m`, respectively. Automatic centering has its own much
-lower `0.180 N m` clamp and `0.45 rad/s` target-speed ceiling.
+`10.0 A` overall and swing-up (including guarded trials), and `4.0 A` for
+upright tuning. The resulting torque limits are approximately `0.3063` and
+`0.1225 N m`, respectively. Automatic centering and the user-selectable swing
+ceiling stop at `0.300 N m`; centering also has a `0.45 rad/s` speed ceiling.
 
 ## Timing and transport review
 

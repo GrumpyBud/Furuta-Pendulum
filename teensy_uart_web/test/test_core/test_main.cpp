@@ -63,16 +63,16 @@ void test_center_arm_torque_is_slow_bounded_and_directional() {
   const furuta::State positive_arm{1.0F, -furuta::kPi, 0.0F, 0.0F};
   const furuta::State negative_arm{-1.0F, -furuta::kPi, 0.0F, 0.0F};
   TEST_ASSERT_FLOAT_WITHIN(
-      1.0e-6F, -0.18F,
-      furuta::centerArmTorque(positive_arm, 2.5F, 0.45F, 0.4F, 0.18F));
+      1.0e-6F, -0.30F,
+      furuta::centerArmTorque(positive_arm, 2.5F, 0.45F, 0.67F, 0.30F));
   TEST_ASSERT_FLOAT_WITHIN(
-      1.0e-6F, 0.18F,
-      furuta::centerArmTorque(negative_arm, 2.5F, 0.45F, 0.4F, 0.18F));
+      1.0e-6F, 0.30F,
+      furuta::centerArmTorque(negative_arm, 2.5F, 0.45F, 0.67F, 0.30F));
   TEST_ASSERT_FLOAT_WITHIN(
-      1.0e-6F, -0.18F,
+      1.0e-6F, -0.30F,
       furuta::centerArmTorque(
           {1.0F, -furuta::kPi, 2.0F, 0.0F},
-          2.5F, 0.45F, 0.4F, 0.18F));
+          2.5F, 0.45F, 0.67F, 0.30F));
 }
 
 void test_gain_limits_follow_the_reviewed_model_profile() {
@@ -90,17 +90,17 @@ void test_gain_limits_follow_the_reviewed_model_profile() {
 }
 
 void test_swing_settings_reject_negative_non_finite_and_excessive_values() {
-  const furuta::SwingSettings limits{8.0F, 0.30F, 0.30F, 0.24F, 0.245F};
+  const furuta::SwingSettings limits{20.0F, 1.0F, 1.0F, 0.30F, 0.30F};
   TEST_ASSERT_TRUE(furuta::swingSettingsWithinLimits(
-      {0.8F, 0.03F, 0.04F, 0.12F, 0.245F}, limits));
+      {0.8F, 0.03F, 0.04F, 0.18F, 0.30F}, limits));
   TEST_ASSERT_FALSE(furuta::swingSettingsWithinLimits(
-      {-0.1F, 0.03F, 0.04F, 0.12F, 0.245F}, limits));
+      {-0.1F, 0.03F, 0.04F, 0.18F, 0.30F}, limits));
   TEST_ASSERT_FALSE(furuta::swingSettingsWithinLimits(
-      {8.1F, 0.03F, 0.04F, 0.12F, 0.245F}, limits));
+      {20.1F, 0.03F, 0.04F, 0.18F, 0.30F}, limits));
   TEST_ASSERT_FALSE(furuta::swingSettingsWithinLimits(
-      {NAN, 0.03F, 0.04F, 0.12F, 0.245F}, limits));
+      {NAN, 0.03F, 0.04F, 0.18F, 0.30F}, limits));
   TEST_ASSERT_FALSE(furuta::swingSettingsWithinLimits(
-      {0.8F, 0.03F, 0.04F, 0.12F, 0.246F}, limits));
+      {0.8F, 0.03F, 0.04F, 0.18F, 0.301F}, limits));
 }
 
 void test_swing_energy_law_pumps_in_the_direction_of_motion() {
