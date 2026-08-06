@@ -79,8 +79,8 @@ constexpr float kVelocityFilterHz = 25.0F;
 // converted to torque with the measured ODrive torque constant. These are
 // firmware command clamps, not a substitute for matching ODrive limits.
 constexpr float kCommissioningPhaseCurrentLimitAmp = 10.0F;
-constexpr float kSwingPhaseCurrentLimitAmp = 6.5F;
-constexpr float kSwingTuningPhaseCurrentLimitAmp = 4.0F;
+constexpr float kSwingPhaseCurrentLimitAmp = 8.0F;
+constexpr float kSwingTuningPhaseCurrentLimitAmp = 8.0F;
 constexpr float kTuningPhaseCurrentLimitAmp = 4.0F;
 constexpr float kTorqueLimitNm =
     kCommissioningPhaseCurrentLimitAmp * kMotorTorqueConstantNmPerAmp;
@@ -88,6 +88,7 @@ constexpr float kSwingTorqueLimitNm =
     kSwingPhaseCurrentLimitAmp * kMotorTorqueConstantNmPerAmp;
 constexpr float kSwingTuningTorqueLimitNm =
     kSwingTuningPhaseCurrentLimitAmp * kMotorTorqueConstantNmPerAmp;
+constexpr float kSwingCenteringTorqueLimitNm = 0.050F;
 constexpr float kTuningTorqueLimitNm =
     kTuningPhaseCurrentLimitAmp * kMotorTorqueConstantNmPerAmp;
 constexpr float kTorqueSlewNmPerSecond = 8.0F;
@@ -160,18 +161,32 @@ constexpr bool kMechanismSetupComplete = kControlDirectionVerified;
 constexpr bool kAutomaticSwingUpEnabled = false;
 
 // Guarded swing-up commissioning is separate from unrestricted automatic run.
-// It uses the same 4 A phase-current-equivalent clamp as upright tuning, a
-// focused-tab dead-man, centered/down start gates, and a 20 s timeout.
+// It uses an 8 A phase-current-equivalent clamp below the configured 10 A
+// ODrive soft limit, a focused-tab dead-man, automatic low-torque preparation,
+// and a 20 s energy phase timeout.
 constexpr bool kSwingTuningEnabled = true;
 constexpr furuta::SwingSettings kDefaultSwingSettings{
     0.80F, 0.030F, 0.040F, 0.040F};
 constexpr furuta::SwingSettings kSwingSettingLimits{
     3.00F, 0.120F, 0.120F, 0.080F};
 constexpr uint32_t kSwingStartupKickPhaseMs = 180;
-constexpr float kSwingStartDownToleranceRad = 0.18F;
-constexpr float kSwingStartPendulumRateRadS = 0.50F;
-constexpr float kSwingStartArmAngleRad = 0.35F;
-constexpr float kSwingStartArmRateRadS = 0.30F;
+// A guarded run may begin away from center. A low-torque velocity-limited phase
+// first moves the arm to its saved zero, then holds it until the pendulum is
+// quiet continuously before energy pumping begins.
+constexpr float kSwingPrepositionStartArmAngleRad = 1.75F;
+constexpr float kSwingPrepositionStartArmRateRadS = 0.50F;
+constexpr float kSwingPrepositionStartDownToleranceRad = 0.80F;
+constexpr float kSwingPrepositionStartPendulumRateRadS = 2.0F;
+constexpr float kSwingCenterPositionGainPerSecond = 0.80F;
+constexpr float kSwingCenterMaximumVelocityRadS = 0.45F;
+constexpr float kSwingCenterVelocityGainNmPerRadS = 0.060F;
+constexpr float kSwingCenterAngleToleranceRad = 0.05F;
+constexpr float kSwingCenterRateToleranceRadS = 0.15F;
+constexpr uint32_t kSwingCenterTimeoutMs = 12000;
+constexpr float kSwingSettleDownToleranceRad = 0.10F;
+constexpr float kSwingSettlePendulumRateRadS = 0.30F;
+constexpr uint32_t kSwingSettleHoldMs = 1200;
+constexpr uint32_t kSwingSettleTimeoutMs = 12000;
 constexpr float kCatchAngleRad = 0.14F;
 constexpr float kDropAngleRad = 0.45F;
 constexpr float kCatchPendulumVelocityRadS = 1.5F;
@@ -212,6 +227,17 @@ static_assert(kTuningPhaseCurrentLimitAmp <= kSwingPhaseCurrentLimitAmp &&
                   kSwingPhaseCurrentLimitAmp <=
                       kCommissioningPhaseCurrentLimitAmp,
               "current limit tiers must be ordered");
+static_assert(kSwingCenteringTorqueLimitNm <= kSwingTuningTorqueLimitNm,
+              "automatic centering must not exceed swing tuning torque");
+static_assert(kSwingPrepositionStartArmAngleRad < kArmAngleLimitRad,
+              "swing preparation must begin inside the arm travel limit");
+static_assert(kSwingCenterMaximumVelocityRadS < kArmVelocityLimitRadS,
+              "automatic centering speed must remain below arm overspeed");
+static_assert(kSwingSettleDownToleranceRad <
+                  kSwingPrepositionStartDownToleranceRad &&
+                  kSwingSettlePendulumRateRadS <
+                      kSwingPrepositionStartPendulumRateRadS,
+              "settling gates must be tighter than pre-arm gates");
 static_assert(kPendulumDirection == 1.0F || kPendulumDirection == -1.0F,
               "kPendulumDirection must be exactly 1 or -1");
 static_assert(kUartResponseTimeoutUs < kControlPeriodUs,

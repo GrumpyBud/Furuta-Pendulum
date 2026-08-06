@@ -148,9 +148,11 @@ It pumps toward the upright energy and naturally changes phase through the swing
 tau = tau_energy - k_d*theta_dot - k_c*theta
 ```
 
-Because the continuous energy term is exactly zero when the pendulum is perfectly motionless at the bottom, a guarded trial begins with one small positive bounded arm nudge, then immediately hands control to the energy law. This removes the mathematical deadlock without relying on encoder noise or an opposing kick that could remove the energy just added. The nudge is still real motion and begins immediately after confirmed arming.
+Because the continuous energy term is exactly zero when the pendulum is perfectly motionless at the bottom, the energy phase begins with one small positive bounded arm nudge, then immediately hands control to the energy law. This removes the mathematical deadlock without relying on encoder noise or an opposing kick that could remove the energy just added.
 
-Guarded swing-up and its balance catch are clamped to the same 4 A-equivalent `0.1225 N m` limit used for upright tuning. The trial also requires the arm within `0.35 rad`, the pendulum within `0.18 rad` of hanging down, low arm/pendulum rates, a focused Spacebar dead-man, and stops after 20 seconds. Runtime energy gain, arm damping, arm centring, and startup nudge are nonnegative and bounded in both the browser and firmware. Unrestricted automatic mode retains its separate higher clamps but remains disabled.
+Before that energy phase, the controller performs two explicit preparation states. `CENTERING` uses a cascaded position-to-velocity controller to return the arm to its saved zero, with desired speed limited to `0.45 rad/s` and torque limited to `0.050 N m` (about `1.63 A` phase-current equivalent). `SETTLING` holds the same center controller and requires the arm to remain within `0.05 rad` at less than `0.15 rad/s`, and the pendulum to remain within `0.10 rad` of hanging at less than `0.30 rad/s`, continuously for `1.2 s`. Centering and settling each have independent 12-second timeouts. This preparation is intentionally slow and cannot silently consume the separate 20-second energy/balance trial window.
+
+The guarded request still has a broad pre-arm envelope: the stopped arm must be within `1.75 rad` of saved center and the pendulum generally downward within `0.80 rad`; rate gates reject an already fast-moving mechanism. Guarded swing-up and its balance catch are clamped to an 8 A-equivalent `0.2450 N m`, below the configured 10 A ODrive soft limit and 18 A hard limit. Upright tuning remains independently limited to 4 A-equivalent `0.1225 N m`. Runtime energy gain, arm damping, arm centring, and startup nudge are nonnegative and bounded in both the browser and firmware. All preparation and active phases require the focused Spacebar dead-man. Unrestricted automatic mode remains disabled.
 
 ## Switching and saturation
 
@@ -161,9 +163,10 @@ Every controller path reaches a final torque clamp and slew limiter. Tuning has 
 After the `18 A` ODrive hard limit was reported, the old `0.75 N m` firmware
 clamp was found to correspond to `24.49 A` at the measured torque constant. The
 commissioning clamps are now defined in current units and converted to torque:
-`10.0 A` overall, `6.5 A` unrestricted swing-up, and `4.0 A` for both upright
-and guarded swing-up tuning. The resulting torque limits are approximately
-`0.3063`, `0.1991`, and `0.1225 N m`, respectively.
+`10.0 A` overall, `8.0 A` swing-up (including guarded trials), and `4.0 A` for
+upright tuning. The resulting torque limits are approximately `0.3063`,
+`0.2450`, and `0.1225 N m`, respectively. Automatic centering has its own much
+lower `0.050 N m` clamp.
 
 ## Timing and transport review
 
@@ -208,6 +211,7 @@ Active control faults on:
 - predicted arm travel stopping margin, arm speed, or pendulum speed limit;
 - repeated control deadline misses;
 - upright-tuning twenty-second timeout or exit from its narrow region;
+- automatic-centering or pendulum-settling twelve-second timeout;
 - guarded swing-up twenty-second timeout.
 
 Boot requests zero torque/idle and starts disarmed. Recoverable motion-envelope,

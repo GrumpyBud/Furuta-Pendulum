@@ -50,6 +50,31 @@ void test_projected_travel_counts_only_outward_motion() {
       1.0e-6F, 1.4F, furuta::projectedAbsoluteTravel(-1.0F, -2.0F, 0.2F));
 }
 
+void test_down_angle_error_handles_wrap_boundary() {
+  TEST_ASSERT_FLOAT_WITHIN(1.0e-6F, 0.0F,
+                           furuta::downAngleError(-furuta::kPi));
+  TEST_ASSERT_FLOAT_WITHIN(1.0e-6F, 0.0F,
+                           furuta::downAngleError(furuta::kPi));
+  TEST_ASSERT_FLOAT_WITHIN(1.0e-6F, furuta::kPi,
+                           furuta::downAngleError(0.0F));
+}
+
+void test_center_arm_torque_is_slow_bounded_and_directional() {
+  const furuta::State positive_arm{1.0F, -furuta::kPi, 0.0F, 0.0F};
+  const furuta::State negative_arm{-1.0F, -furuta::kPi, 0.0F, 0.0F};
+  TEST_ASSERT_FLOAT_WITHIN(
+      1.0e-6F, -0.027F,
+      furuta::centerArmTorque(positive_arm, 0.8F, 0.45F, 0.06F, 0.05F));
+  TEST_ASSERT_FLOAT_WITHIN(
+      1.0e-6F, 0.027F,
+      furuta::centerArmTorque(negative_arm, 0.8F, 0.45F, 0.06F, 0.05F));
+  TEST_ASSERT_FLOAT_WITHIN(
+      1.0e-6F, -0.05F,
+      furuta::centerArmTorque(
+          {1.0F, -furuta::kPi, 2.0F, 0.0F},
+          0.8F, 0.45F, 0.06F, 0.05F));
+}
+
 void test_gain_limits_follow_the_reviewed_model_profile() {
   const furuta::Gains limits{0.16F, 2.5F, 0.13F, 0.25F};
   const furuta::Gains model{-0.0914F, 1.4443F, -0.0692F, 0.1389F};
@@ -161,6 +186,8 @@ int main(int, char**) {
   RUN_TEST(test_slew_limit_bounds_both_directions);
   RUN_TEST(test_keepalive_freshness_boundaries_and_timer_wrap);
   RUN_TEST(test_projected_travel_counts_only_outward_motion);
+  RUN_TEST(test_down_angle_error_handles_wrap_boundary);
+  RUN_TEST(test_center_arm_torque_is_slow_bounded_and_directional);
   RUN_TEST(test_gain_limits_follow_the_reviewed_model_profile);
   RUN_TEST(test_swing_settings_reject_negative_non_finite_and_excessive_values);
   RUN_TEST(test_swing_energy_law_pumps_in_the_direction_of_motion);

@@ -18,6 +18,8 @@
 
   const modeDescriptions = {
     DISARMED: "Motor output is disabled.", TEST: "Sensor test only; motor output is disabled.",
+    CENTERING: "The arm is moving slowly toward its saved center.",
+    SETTLING: "The arm is centered while the pendulum becomes motionless.",
     SWING_UP: "Automatic swing-up is active.", BALANCE: "Upright balance control is active.",
     TUNING: "Low-torque Spacebar dead-man test is active.", FAULT: "A safety check stopped the controller.", OFFLINE: "Connect the Teensy to begin."
   };
@@ -210,7 +212,7 @@
   function render() {
     const sample = state.sample;
     const safeMode = sample && ["DISARMED", "TEST"].includes(sample.mode);
-    const activeMode = sample && ["SWING_UP", "BALANCE", "TUNING"].includes(sample.mode);
+    const activeMode = sample && ["CENTERING", "SETTLING", "SWING_UP", "BALANCE", "TUNING"].includes(sample.mode);
     const ready = checks();
     const readyCount = Object.values(ready).filter(Boolean).length;
     updateCheck("checkConnection", ready.connection, "CONNECT");
@@ -236,14 +238,14 @@
 
     const tuningPositionReady = Boolean(sample && Math.abs(sample.pendulum) < 0.14 && Math.abs(sample.pendulumRate) < 1);
     const swingStartReady = Boolean(sample &&
-      Math.abs(Math.abs(sample.pendulum) - Math.PI) < 0.18 &&
-      Math.abs(sample.pendulumRate) < 0.5 && Math.abs(sample.arm) < 0.35 &&
-      Math.abs(sample.armRate) < 0.3);
+      Math.abs(Math.abs(sample.pendulum) - Math.PI) < 0.80 &&
+      Math.abs(sample.pendulumRate) < 2.0 && Math.abs(sample.arm) < 1.75 &&
+      Math.abs(sample.armRate) < 0.5);
     const allReady = readyCount === 6;
     elements.tuneHoldButton.disabled = !(allReady && safeMode && tuningPositionReady);
     elements.tuneHint.textContent = !allReady ? "Complete every setup check, including holding Space." : !safeMode ? "Disarm before tuning." : !tuningPositionReady ? "Hold the pendulum nearly upright and motionless." : "Ready—holding Space starts the trial automatically.";
     elements.swingTrialButton.disabled = !(allReady && mode === "DISARMED" && sample?.swingTuning && swingStartReady);
-    elements.swingHint.textContent = !allReady ? "Complete every setup check, including holding Space." : mode !== "DISARMED" ? "Disarm before starting another swing-up trial." : !sample?.swingTuning ? "Guarded swing-up tuning is locked in firmware." : !swingStartReady ? "Center the arm within 20° and hold the pendulum hanging down and motionless." : "Ready—holding Space starts the guarded 20-second trial automatically.";
+    elements.swingHint.textContent = !allReady ? "Complete every setup check, including holding Space." : mode !== "DISARMED" ? "The guarded sequence is active or must be disarmed before restarting." : !sample?.swingTuning ? "Guarded swing-up tuning is locked in firmware." : !swingStartReady ? "Stop the arm and let the pendulum remain generally downward; automatic centering handles the position." : "Ready—holding Space starts centering, settling, then guarded swing-up automatically.";
     elements.armButton.disabled = !(allReady && mode === "DISARMED" && sample.automatic);
     elements.disarmButton.disabled = !(state.connected && sample && (activeMode || mode === "FAULT" || mode === "TEST"));
 

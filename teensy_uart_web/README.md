@@ -17,7 +17,7 @@ This is the non-CAN version of the Furuta pendulum controller. A Teensy 4.1 read
 - a focused-tab Spacebar dead-man required by all motor-active modes;
 - a separate low-torque `TUNING` mode that aborts outside the upright region and stops after twenty seconds;
 - temporary, range-checked gain changes that revert on reboot;
-- a separately gated, 4 A-equivalent guarded swing-up tuner with a 20-second timeout, centered/down start checks, bounded runtime settings, energy shaping, and automatic balance catch;
+- a separately gated guarded swing-up tuner that slowly returns the arm to its saved center, waits for the pendulum to settle, then runs an 8 A-equivalent, 20-second energy-shaping trial with automatic balance catch;
 - an independent lock that still prevents unrestricted automatic swing-up.
 
 The web server runs on the computer connected to the Teensy. The Teensy 4.1 does not provide this webpage directly; doing that would require the optional Teensy Ethernet hardware and a different network/security design.
@@ -114,7 +114,7 @@ python3 web/serve.py
 
 Open [http://localhost:8765](http://localhost:8765) in a current desktop Chrome or Edge browser, then click **Connect Teensy** and choose its USB serial port. Web Serial requires the first connection to come from a user click. The server binds only to `127.0.0.1`, has no Python package dependencies, and the page loads no cloud resources. Use `?demo=1` to preview without hardware.
 
-Keep the control page focused and continuously hold **Space** whenever motor motion is intended. On **Tune**, an upright/motionless pendulum starts the low-torque balance trial automatically. On **Run**, a centered arm and hanging/motionless pendulum starts the guarded swing-up trial automatically. No mouse click is required for either commissioning trial. Releasing Space, changing tabs, minimizing the window, disconnecting, or crashing the page stops the browser dead-man messages. The Teensy independently rejects stale messages after 450 ms, and the ODrive watchdog is the shorter motor-command fallback once armed.
+Keep the control page focused and continuously hold **Space** whenever motor motion is intended. On **Tune**, an upright/motionless pendulum starts the low-torque balance trial automatically. On **Run**, release the mechanism with the pendulum generally down and the arm already stopped. The guarded sequence starts automatically, slowly returns the arm to its saved center, waits for the pendulum to remain quiet for 1.2 seconds, and only then begins swing-up. No mouse click or manual arm centering is required. Releasing Space, changing tabs, minimizing the window, disconnecting, or crashing the page stops the browser dead-man messages. The Teensy independently rejects stale messages after 450 ms, and the ODrive watchdog is the shorter motor-command fallback once armed.
 
 The Spacebar control is intentionally ignored while typing in a form field. Click outside a gain input before holding Space. A browser key is not a safety-rated E-stop and cannot protect against a frozen operating system, USB stack, ODrive fault, or power-stage fault.
 
@@ -130,7 +130,7 @@ The Spacebar control is intentionally ignored while typing in a form field. Clic
 7. Calibrate and test the ODrive separately with the linkage disconnected and a tiny current/torque limit.
 8. Only after expert review of the model/gains, install the guard, clear the full envelope, enable current-limited motor power, and use **Tune**. Hold the pendulum upright and then hold Space; the low-torque trial starts automatically. Release Space to stop.
 9. Start with **Hardware tuned**, which is also the firmware default. Repeat a guarded test and download the CSV after each profile. Travel, speed, catch-region, timeout, deadline, and dead-man faults preserve the saved zero because neither encoder reference changed. Encoder corruption, non-finite sensor data, ODrive active errors, or loss of ODrive feedback invalidate it. The fault banner states which case occurred. Exact individual gains are exposed only as advanced controls.
-10. After bounded upright trials are consistently stable, use **Run** for guarded swing-up tuning. Center the arm, let the pendulum hang motionless, then hold Space. The 4 A-equivalent, 20-second trial starts automatically, attempts the upright catch with the validated balance gains, and logs its swing settings in every CSV row. Full automatic motion remains locked until these trials are reviewed.
+10. After bounded upright trials are consistently stable, use **Run** for guarded swing-up tuning. Let go with the arm stopped and the pendulum generally downward, then hold Space. The controller slowly centers the arm, holds it while the pendulum settles, and then starts the 8 A-equivalent, 20-second energy trial. It attempts the upright catch with the validated balance gains and logs the centering, settling, swing-up, and balance modes plus its swing settings in every CSV. Full automatic motion remains locked until these trials are reviewed.
 
 ## Why tuning is guided rather than automatic
 
@@ -146,7 +146,7 @@ Blind automatic gain search on an unstable mechanism can command unsafe motion a
 - **A sign is backward:** change the corresponding direction constant with all motor power off, rebuild, and repeat the explicit coupling-sign procedure. Do not flip a gain.
 - **Tuning refuses to start:** all six setup checks must pass, `kControlDirectionVerified` must be true, Space must remain held in the focused tab, the controller must be `DISARMED` or `TEST`, and the pendulum must be within about 8° of upright and moving slower than 1 rad/s.
 - **Full automatic stays disabled:** expected during guarded swing-up commissioning; it has a separate `kAutomaticSwingUpEnabled` interlock.
-- **Guarded swing-up will not start:** center the arm within about 20°, let the pendulum hang within about 10° of straight down, hold both nearly motionless, and hold Space on the Run page.
+- **Guarded swing-up will not start:** before holding Space on **Run**, stop the arm inside about ±100° of its saved center and let the pendulum be generally downward (within about 46°, below 2 rad/s). Once accepted, the controller centers the arm automatically. It faults if centering takes over 12 seconds or the pendulum cannot stay near straight down and quiet for 1.2 continuous seconds within the following 12 seconds.
 - **Motion stops after releasing Space or changing tabs:** expected dead-man behavior. A successfully delivered release returns to `DISARMED`; a lost keep-alive produces a fault that must be acknowledged, but its saved zero is retained.
 
 UART is convenient and removes the CAN transceiver, but ODrive explicitly describes its Arduino UART library/protocol path as hobby-oriented and recommends CAN for professional/noisy environments. Do not treat fewer wires as greater fault tolerance.

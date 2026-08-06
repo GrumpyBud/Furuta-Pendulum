@@ -16,6 +16,8 @@ namespace {
 enum class Mode : uint8_t {
   kDisarmed,
   kTest,
+  kSwingCentering,
+  kSwingSettling,
   kSwingUp,
   kBalance,
   kTuning,
@@ -228,6 +230,8 @@ uint32_t last_diagnostics_ms = 0;
 uint32_t last_telemetry_ms = 0;
 uint32_t tuning_started_ms = 0;
 uint32_t run_started_ms = 0;
+uint32_t swing_phase_started_ms = 0;
+uint32_t swing_settle_ready_ms = 0;
 uint32_t browser_deadman_ms = 0;
 uint32_t last_state_sample_us = 0;
 uint32_t consecutive_encoder_errors = 0;
@@ -246,7 +250,8 @@ char command_buffer[128]{};
 size_t command_length = 0;
 
 bool isActive() {
-  return mode == Mode::kSwingUp || mode == Mode::kBalance ||
+  return mode == Mode::kSwingCentering || mode == Mode::kSwingSettling ||
+         mode == Mode::kSwingUp || mode == Mode::kBalance ||
          mode == Mode::kTuning;
 }
 
@@ -260,6 +265,8 @@ const char* modeName() {
   switch (mode) {
     case Mode::kDisarmed: return "DISARMED";
     case Mode::kTest: return "TEST";
+    case Mode::kSwingCentering: return "CENTERING";
+    case Mode::kSwingSettling: return "SETTLING";
     case Mode::kSwingUp: return "SWING_UP";
     case Mode::kBalance: return "BALANCE";
     case Mode::kTuning: return "TUNING";
@@ -471,6 +478,54 @@ void runControlTick() {
     requested_torque = furuta::clamp(
         furuta::balanceTorque(state, gains), -config::kTuningTorqueLimitNm,
         config::kTuningTorqueLimitNm);
+  } else if (mode == Mode::kSwingCentering) {
+    if (now_ms - swing_phase_started_ms > config::kSwingCenterTimeoutMs) {
+      enterFault("automatic arm centering time limit reached");
+      return;
+    }
+    requested_torque = furuta::centerArmTorque(
+        state, config::kSwingCenterPositionGainPerSecond,
+        config::kSwingCenterMaximumVelocityRadS,
+        config::kSwingCenterVelocityGainNmPerRadS,
+        config::kSwingCenteringTorqueLimitNm);
+    if (std::fabs(state.arm_angle_rad) <
+            config::kSwingCenterAngleToleranceRad &&
+        std::fabs(state.arm_velocity_rad_s) <
+            config::kSwingCenterRateToleranceRadS) {
+      mode = Mode::kSwingSettling;
+      swing_phase_started_ms = now_ms;
+      swing_settle_ready_ms = 0U;
+      event("INFO", "SWING_PHASE", "arm centered; waiting for pendulum to settle");
+    }
+  } else if (mode == Mode::kSwingSettling) {
+    if (now_ms - swing_phase_started_ms > config::kSwingSettleTimeoutMs) {
+      enterFault("pendulum settling time limit reached");
+      return;
+    }
+    requested_torque = furuta::centerArmTorque(
+        state, config::kSwingCenterPositionGainPerSecond,
+        config::kSwingCenterMaximumVelocityRadS,
+        config::kSwingCenterVelocityGainNmPerRadS,
+        config::kSwingCenteringTorqueLimitNm);
+    const bool settled =
+        furuta::downAngleError(state.pendulum_angle_rad) <
+            config::kSwingSettleDownToleranceRad &&
+        std::fabs(state.pendulum_velocity_rad_s) <
+            config::kSwingSettlePendulumRateRadS &&
+        std::fabs(state.arm_angle_rad) <
+            config::kSwingCenterAngleToleranceRad &&
+        std::fabs(state.arm_velocity_rad_s) <
+            config::kSwingCenterRateToleranceRadS;
+    if (!settled) {
+      swing_settle_ready_ms = 0U;
+    } else if (swing_settle_ready_ms == 0U) {
+      swing_settle_ready_ms = now_ms;
+    } else if (now_ms - swing_settle_ready_ms >=
+               config::kSwingSettleHoldMs) {
+      mode = Mode::kSwingUp;
+      run_started_ms = now_ms;
+      event("WARN", "SWING_PHASE", "pendulum settled; energy swing started");
+    }
   } else {
     if (guarded_swing_trial &&
         now_ms - run_started_ms > config::kSwingTuningMaximumRunMs) {
@@ -657,6 +712,8 @@ void disarm(const bool acknowledge_fault) {
   }
   mode = Mode::kDisarmed;
   guarded_swing_trial = false;
+  swing_phase_started_ms = 0U;
+  swing_settle_ready_ms = 0U;
   commanded_torque_nm = 0.0F;
   if (acknowledge_fault) fault_reason[0] = '\0';
   event("INFO", "DISARMED", "motor requested idle");
@@ -848,7 +905,7 @@ void executeCommand() {
   } else if (std::strcmp(verb, "swing_start") == 0) {
     const char* confirmation = strtok_r(nullptr, " ", &save);
     const float down_error =
-        std::fabs(std::fabs(state.pendulum_angle_rad) - furuta::kPi);
+        furuta::downAngleError(state.pendulum_angle_rad);
     if (mode != Mode::kDisarmed) {
       event("WARN", "REFUSED", "disarm before a swing-up tuning trial");
     } else if (!config::kSwingTuningEnabled ||
@@ -860,23 +917,25 @@ void executeCommand() {
     } else if (!zero_valid || !encoder_healthy || !odrive_online ||
                !browserDeadmanFresh(millis())) {
       event("WARN", "REFUSED", "setup checks are incomplete");
-    } else if (down_error > config::kSwingStartDownToleranceRad ||
+    } else if (down_error >
+                   config::kSwingPrepositionStartDownToleranceRad ||
                std::fabs(state.pendulum_velocity_rad_s) >
-                   config::kSwingStartPendulumRateRadS ||
+                   config::kSwingPrepositionStartPendulumRateRadS ||
                std::fabs(state.arm_angle_rad) >
-                   config::kSwingStartArmAngleRad ||
+                   config::kSwingPrepositionStartArmAngleRad ||
                std::fabs(state.arm_velocity_rad_s) >
-                   config::kSwingStartArmRateRadS) {
-      event("WARN", "REFUSED", "center arm and hold pendulum down and motionless");
+                   config::kSwingPrepositionStartArmRateRadS) {
+      event("WARN", "REFUSED", "hold arm and hanging pendulum inside safe start envelope");
     } else if (!armODrive()) {
       enterFault(odrive_arm_failure[0] == '\0'
                      ? "ODrive refused guarded swing-up request"
                      : odrive_arm_failure);
     } else {
       guarded_swing_trial = true;
-      mode = Mode::kSwingUp;
-      run_started_ms = millis();
-      event("WARN", "SWING_TUNING", "guarded low-torque swing-up trial active");
+      mode = Mode::kSwingCentering;
+      swing_phase_started_ms = millis();
+      swing_settle_ready_ms = 0U;
+      event("WARN", "SWING_TUNING", "guarded trial active; slowly centering arm");
     }
   } else if (std::strcmp(verb, "arm") == 0) {
     const char* confirmation = strtok_r(nullptr, " ", &save);
@@ -898,9 +957,10 @@ void executeCommand() {
                      : odrive_arm_failure);
     } else {
       guarded_swing_trial = false;
-      mode = Mode::kSwingUp;
-      run_started_ms = millis();
-      event("WARN", "ARMED", "automatic swing-up and balance active");
+      mode = Mode::kSwingCentering;
+      swing_phase_started_ms = millis();
+      swing_settle_ready_ms = 0U;
+      event("WARN", "ARMED", "automatic centering, settling, swing-up, and balance active");
     }
   } else if (std::strcmp(verb, "status") == 0) {
     last_telemetry_ms = 0;
