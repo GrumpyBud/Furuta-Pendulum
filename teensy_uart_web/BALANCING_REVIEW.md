@@ -148,6 +148,26 @@ It pumps toward the upright energy and naturally changes phase through the swing
 tau = tau_energy - k_d*theta_dot - k_c*theta
 ```
 
+The first hardware energy trials exposed a limitation in applying that equation
+without regard to available arm travel. In the 2026-08-07 run, 664 consecutive
+`SWING_UP` samples reached only `1.957 rad` (`112.1 degrees`) from upright before
+the arm walked from center to `-1.55 rad` and the pendulum lost energy. The
+command was already at the `0.450 N m` ceiling for `30.9%` of those samples, so
+raising the ceiling was not the missing behavior. The revised law keeps full
+energy pumping near center and whenever the energy torque points back toward
+center. Only an outward-pointing energy term fades linearly from full at
+`0.65 rad` to zero at `1.10 rad`; arm-centering and arm-rate damping remain
+active throughout. A replay on that failed trajectory reduced mean outward
+torque beyond the guard from `0.077 N m` to `0.015 N m`, while the stronger
+default increased mean absolute swing command from `0.256 N m` to `0.359 N m`.
+Replay is a control-logic regression check, not a prediction of the changed
+closed-loop trajectory, so the physical guarded trial remains authoritative.
+
+The hardware-informed default is now `k_E = 2.0`, `k_d = 0.030`, and
+`k_c = 0.180`, with a `0.220 N m` startup nudge and the unchanged `0.450 N m`
+ceiling. The travel guard begins far inside both the `2.4 rad` predictive
+software stop and the requested `+/-pi` mechanical envelope.
+
 Because the continuous energy term is exactly zero when the pendulum is perfectly motionless at the bottom, the energy phase begins with one small positive bounded arm nudge, then immediately hands control to the energy law. This removes the mathematical deadlock without relying on encoder noise or an opposing kick that could remove the energy just added.
 
 Before that energy phase, the controller performs two explicit preparation states using ODrive's native position loop. `CENTERING` selects `POSITION_CONTROL` plus `POS_FILTER`, seeds the setpoint at the measured position, and then targets the saved arm zero. The configuration is read back before motion: filter bandwidth `20 1/s`, velocity limit `0.5 turn/s`, position gain `20`, velocity gain `0.167`, velocity-integrator gain `0.333`, velocity limiting enabled, and command torque limited to `0.300 N m`. ODrive retains and filters that target internally; `CENTERING` and `SETTLING` feed its watchdog every 20 ms with the short `u 0` command instead of repeatedly transmitting the longer position command. These ODrive-managed states request arm feedback at 100 Hz, allow up to 9 ms for a reply, and stop after three consecutive misses or 35 ms without a valid reply—still before the 50 ms hardware watchdog. A failed feedback transaction remains immediately due, and successful arming restarts the slower property-health timer, preventing a property query and retry delay from consuming the initial feedback-freshness window. Active and inactive feedback polling are mutually exclusive; an active tick whose 100 Hz request is not due performs no background 4.5 ms transaction. The time-critical Teensy torque loop keeps its original 200 Hz, 4.5 ms transaction schedule and 15 ms freshness limit. The arm must remain within `0.020 rad` at less than `0.050 rad/s`, and the pendulum within `0.040 rad` of hanging at less than `0.120 rad/s`, for `2.5 s` continuously. Settling uses separate low-pass rate estimates: 5 Hz for the ODrive arm velocity and 3 Hz for the pendulum encoder. Hardware logs showed the arm confined to `0.00122 rad` peak-to-peak while its instantaneous velocity estimate spiked to `0.0822 rad/s`; filtering prevents those measurement spikes and stationary AS5048A count jitter from resetting the timer, while tests verify sustained arm motion and the measured approximately 1.4 Hz pendulum oscillation remain detectable. The original estimates remain unchanged for balance control. Any real gate excursion resets the timer. Centering has a 12-second timeout and settling has a 20-second timeout. Once settled, the code changes input mode to passthrough, sends zero torque, and reads back torque mode `1` and input mode `1`; swing-up cannot begin if that handoff fails.
@@ -158,7 +178,7 @@ The guarded request still has a broad pre-arm envelope: the stopped arm must be 
 
 `SWING_UP` changes to `BALANCE` only when both the absolute upright angle and pendulum speed are inside the catch limits. `BALANCE` returns to `SWING_UP` at a wider angle, giving hysteresis and avoiding rapid mode chatter.
 
-Every controller path reaches a final torque clamp and slew limiter. Tuning has a lower clamp. Saturation means the linear closed-loop poles alone are not enough to prove stability; nonlinear simulation and logged hardware trials must include the same clamps, slew rate, ODrive torque accuracy, and bus/current limiting.
+Every controller path reaches a final torque clamp and slew limiter. Tuning has a lower clamp. Saturation means the linear closed-loop poles alone are not enough to prove stability; nonlinear simulation and logged hardware trials must include the same clamps, slew rate, ODrive torque accuracy, and bus/current limiting. The 2026-08-07 trace also showed that the old request and the transmitted slew-limited torque differed by only `0.004 N m` on average, ruling out the common slew limiter as the dominant cause of that specific plateau; it therefore remains unchanged for both swing and balance.
 
 After the `18 A` ODrive hard limit was reported, the old `0.75 N m` firmware
 clamp was found to correspond to `24.49 A` at the measured torque constant. The

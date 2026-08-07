@@ -175,10 +175,16 @@ constexpr bool kAutomaticSwingUpEnabled = false;
 // dead-man, automatic speed-limited preparation, and a 20 s energy timeout.
 constexpr bool kSwingTuningEnabled = true;
 constexpr furuta::SwingSettings kDefaultSwingSettings{
-    0.80F, 0.010F, 0.040F, 0.180F, 0.450F};
+    2.00F, 0.030F, 0.180F, 0.220F, 0.450F};
 constexpr furuta::SwingSettings kSwingSettingLimits{
     20.00F, 1.000F, 1.000F, 0.300F, 0.450F};
 constexpr uint32_t kSwingStartupKickPhaseMs = 180;
+// Hardware logs with the old unguarded energy law plateaued 112 degrees from
+// upright while the arm walked to -1.55 rad. Preserve full pumping around the
+// center, but fade only outward energy torque between these bounds. Inward
+// pumping and the user-configured centering/damping terms remain available.
+constexpr float kSwingTravelGuardStartRad = 0.65F;
+constexpr float kSwingTravelGuardFullRad = 1.10F;
 // A guarded run may begin away from center. ODrive's filtered position mode
 // moves the arm to its saved zero with the hardware-tested gains below, then
 // continues holding that exact target until the mechanism is quiet.
@@ -261,6 +267,10 @@ static_assert(kSwingSettingLimits.startup_kick_nm <=
               "runtime swing settings must remain inside the hard clamp");
 static_assert(kSwingPrepositionStartArmAngleRad < kArmAngleLimitRad,
               "swing preparation must begin inside the arm travel limit");
+static_assert(kSwingTravelGuardStartRad > 0.0F &&
+                  kSwingTravelGuardFullRad > kSwingTravelGuardStartRad &&
+                  kSwingTravelGuardFullRad < kArmAngleLimitRad,
+              "swing travel guard must stay inside the arm travel limit");
 static_assert(kSwingCenterVelocityLimitTurnsS * furuta::kTwoPi <
                   kArmVelocityLimitRadS,
               "automatic centering speed must remain below arm overspeed");

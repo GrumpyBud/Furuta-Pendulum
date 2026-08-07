@@ -167,4 +167,34 @@ inline float swingUpTorque(const State& state, const float mass_kg,
          arm_damping * state.arm_velocity_rad_s;
 }
 
+inline float outwardSwingScale(const float arm_angle_rad,
+                               const float energy_torque_nm,
+                               const float guard_start_rad,
+                               const float guard_full_rad) {
+  if (arm_angle_rad * energy_torque_nm <= 0.0F) return 1.0F;
+  if (!(guard_full_rad > guard_start_rad)) return 0.0F;
+  return clamp((guard_full_rad - std::fabs(arm_angle_rad)) /
+                   (guard_full_rad - guard_start_rad),
+               0.0F, 1.0F);
+}
+
+inline float travelAwareSwingUpTorque(
+    const State& state, const float mass_kg, const float com_length_m,
+    const float inertia_kg_m2, const float energy_gain,
+    const float arm_damping, const float arm_centering,
+    const float guard_start_rad, const float guard_full_rad) {
+  // Preserve full energy pumping near center and whenever it helps return the
+  // arm. Only fade the component that would push an already displaced arm
+  // farther outward; the restoring PD terms always retain authority.
+  const float energy_torque =
+      swingUpTorque(state, mass_kg, com_length_m, inertia_kg_m2,
+                    energy_gain, 0.0F);
+  const float guarded_energy_torque =
+      energy_torque * outwardSwingScale(
+                          state.arm_angle_rad, energy_torque,
+                          guard_start_rad, guard_full_rad);
+  return guarded_energy_torque - arm_damping * state.arm_velocity_rad_s -
+         arm_centering * state.arm_angle_rad;
+}
+
 }  // namespace furuta

@@ -182,6 +182,25 @@ void test_swing_energy_law_pumps_in_the_direction_of_motion() {
                             0.159F, 0.05379F, 0.001141F, 0.8F, 0.0F));
 }
 
+void test_swing_travel_guard_blocks_only_outward_energy_torque() {
+  TEST_ASSERT_FLOAT_WITHIN(
+      1.0e-6F, 1.0F, furuta::outwardSwingScale(-1.1F, 0.4F, 0.65F, 1.1F));
+  TEST_ASSERT_FLOAT_WITHIN(
+      1.0e-6F, 0.0F, furuta::outwardSwingScale(-1.1F, -0.4F, 0.65F, 1.1F));
+  TEST_ASSERT_FLOAT_WITHIN(
+      1.0e-6F, 0.5F,
+      furuta::outwardSwingScale(0.875F, 0.4F, 0.65F, 1.1F));
+  TEST_ASSERT_FLOAT_WITHIN(
+      1.0e-6F, 1.0F, furuta::outwardSwingScale(0.4F, 0.4F, 0.65F, 1.1F));
+}
+
+void test_travel_aware_swing_retains_centering_at_guard() {
+  const float torque = furuta::travelAwareSwingUpTorque(
+      {-1.1F, -furuta::kPi + 0.1F, 0.0F, 1.0F},
+      0.159F, 0.05379F, 0.001141F, 2.0F, 0.03F, 0.18F, 0.65F, 1.1F);
+  TEST_ASSERT_TRUE(torque > 0.19F);
+}
+
 void test_as5048a_command_and_response_parity() {
   const uint16_t command =
       as5048a::makeReadCommand(as5048a::kRegisterAngle);
@@ -268,6 +287,8 @@ int main(int, char**) {
   RUN_TEST(test_gain_limits_follow_the_reviewed_model_profile);
   RUN_TEST(test_swing_settings_reject_negative_non_finite_and_excessive_values);
   RUN_TEST(test_swing_energy_law_pumps_in_the_direction_of_motion);
+  RUN_TEST(test_swing_travel_guard_blocks_only_outward_energy_torque);
+  RUN_TEST(test_travel_aware_swing_retains_centering_at_guard);
   RUN_TEST(test_as5048a_command_and_response_parity);
   RUN_TEST(test_as5048a_diagnostics_register_and_flags);
   RUN_TEST(test_ascii_checksum_matches_odrive_documentation);

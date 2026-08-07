@@ -133,10 +133,10 @@
           <summary>Swing-up tuning controls</summary>
           <p>Change one value at a time while disarmed. Swing-up is hard-limited to 0.450 N·m; balance and centering retain their lower limits.</p>
           <div class="gain-grid">
-            <label><span><strong>Swing strength</strong><small>How quickly energy is added</small></span><input id="swingEnergyGain" type="number" min="0" max="20" step="0.05" value="0.800"><em>energy</em></label>
-            <label><span><strong>Arm damping</strong><small>Opposes rapid arm motion</small></span><input id="swingArmDamping" type="number" min="0" max="1" step="0.005" value="0.010"><em>damping</em></label>
-            <label><span><strong>Arm centering</strong><small>Pulls the arm toward its saved center</small></span><input id="swingArmCentering" type="number" min="0" max="1" step="0.005" value="0.040"><em>centering</em></label>
-            <label><span><strong>Startup nudge</strong><small>Initial torque from the hanging position</small></span><input id="swingStartupKick" type="number" min="0" max="0.30" step="0.005" value="0.180"><em>Nm</em></label>
+            <label><span><strong>Swing strength</strong><small>How quickly energy is added near center</small></span><input id="swingEnergyGain" type="number" min="0" max="20" step="0.05" value="2.000"><em>energy</em></label>
+            <label><span><strong>Arm damping</strong><small>Opposes rapid arm motion</small></span><input id="swingArmDamping" type="number" min="0" max="1" step="0.005" value="0.030"><em>damping</em></label>
+            <label><span><strong>Arm centering</strong><small>Reserves torque to return the arm toward center</small></span><input id="swingArmCentering" type="number" min="0" max="1" step="0.005" value="0.180"><em>centering</em></label>
+            <label><span><strong>Startup nudge</strong><small>Initial torque from the hanging position</small></span><input id="swingStartupKick" type="number" min="0" max="0.30" step="0.005" value="0.220"><em>Nm</em></label>
             <label><span><strong>Maximum swing torque</strong><small>Hard ceiling during the energy-building phase</small></span><input id="swingTorqueLimit" type="number" min="0" max="0.45" step="0.005" value="0.450"><em>Nm</em></label>
           </div>
           <div class="tune-actions"><button id="applySwingButton" class="button secondary" type="button" disabled>Apply swing settings while disarmed</button><p id="swingFeedback">Firmware-safe defaults loaded.</p></div>

@@ -713,13 +713,20 @@ void runControlTick() {
       if (startup_elapsed_ms < config::kSwingStartupKickPhaseMs) {
         requested_torque = swing_settings.startup_kick_nm;
       } else {
-        requested_torque = furuta::swingUpTorque(
+        requested_torque = furuta::travelAwareSwingUpTorque(
             state, config::kPendulumMassKg, config::kPendulumComLengthM,
             config::kPendulumInertiaKgM2, swing_settings.energy_gain,
-            swing_settings.arm_damping);
+            swing_settings.arm_damping, swing_settings.arm_centering,
+            config::kSwingTravelGuardStartRad,
+            config::kSwingTravelGuardFullRad);
       }
-      requested_torque -=
-          swing_settings.arm_centering * state.arm_angle_rad;
+      // The initial nudge also respects the same restoring terms, so it cannot
+      // ignore an unexpected arm offset during the torque-mode handoff.
+      if (startup_elapsed_ms < config::kSwingStartupKickPhaseMs) {
+        requested_torque -=
+            swing_settings.arm_damping * state.arm_velocity_rad_s +
+            swing_settings.arm_centering * state.arm_angle_rad;
+      }
       const float active_swing_limit_nm = std::fmin(
           swing_settings.torque_limit_nm, config::kSwingTorqueLimitNm);
       requested_torque = furuta::clamp(
