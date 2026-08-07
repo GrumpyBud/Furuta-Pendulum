@@ -245,6 +245,14 @@ void test_feedback_parser_rejects_non_finite_values() {
       odrive_ascii::parseFeedback(inf_payload, position, velocity));
 }
 
+void test_inactive_feedback_poll_never_runs_during_active_control() {
+  TEST_ASSERT_FALSE(odrive_ascii::inactiveFeedbackDue(true, 100U, 0U, 20U));
+  TEST_ASSERT_FALSE(odrive_ascii::inactiveFeedbackDue(false, 19U, 0U, 20U));
+  TEST_ASSERT_TRUE(odrive_ascii::inactiveFeedbackDue(false, 20U, 0U, 20U));
+  TEST_ASSERT_TRUE(odrive_ascii::inactiveFeedbackDue(
+      false, 10U, UINT32_MAX - 14U, 20U));
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_wrap_angle_range_and_boundaries);
@@ -266,5 +274,6 @@ int main(int, char**) {
   RUN_TEST(test_ascii_response_validation_and_feedback_parse);
   RUN_TEST(test_ascii_checksum_rejects_corruption);
   RUN_TEST(test_feedback_parser_rejects_non_finite_values);
+  RUN_TEST(test_inactive_feedback_poll_never_runs_during_active_control);
   return UNITY_END();
 }

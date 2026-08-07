@@ -551,39 +551,45 @@ void runControlTick() {
   bool feedback_missed = false;
   if (health_poll_due) {
     pollODriveHealth(now_ms);
-  } else if (isActive() && feedback_poll_due) {
-    const uint32_t feedback_response_timeout_us =
-        position_managed ? config::kPositionFeedbackResponseTimeoutUs
-                         : config::kUartResponseTimeoutUs;
-    if (!readODriveFeedback(feedback_response_timeout_us)) {
-      feedback_missed = true;
-      ++consecutive_feedback_errors;
-      const uint32_t maximum_errors =
-          position_managed
-              ? config::kPositionMaximumConsecutiveFeedbackErrors
-              : config::kMaximumConsecutiveFeedbackErrors;
-      const uint32_t freshness_limit_us =
-          position_managed ? config::kPositionFeedbackTimeoutUs
-                           : config::kFeedbackTimeoutUs;
-      if (consecutive_feedback_errors >= maximum_errors ||
-          micros() - last_feedback_us > freshness_limit_us) {
-        odrive_online = false;
-        char message[112]{};
-        std::snprintf(
-            message, sizeof(message),
-            "ODrive UART feedback failed after %lu tries (age %lu ms)",
-            static_cast<unsigned long>(consecutive_feedback_errors),
-            static_cast<unsigned long>((micros() - last_feedback_us) / 1000U));
-        enterFault(message, FaultReferencePolicy::kInvalidate);
+  } else if (isActive()) {
+    // Active operation owns the UART feedback schedule. If its lower-rate
+    // position poll is not due, do nothing this tick; never fall through to the
+    // shorter disarmed/background transaction.
+    if (feedback_poll_due) {
+      const uint32_t feedback_response_timeout_us =
+          position_managed ? config::kPositionFeedbackResponseTimeoutUs
+                           : config::kUartResponseTimeoutUs;
+      if (!readODriveFeedback(feedback_response_timeout_us)) {
+        feedback_missed = true;
+        ++consecutive_feedback_errors;
+        const uint32_t maximum_errors =
+            position_managed
+                ? config::kPositionMaximumConsecutiveFeedbackErrors
+                : config::kMaximumConsecutiveFeedbackErrors;
+        const uint32_t freshness_limit_us =
+            position_managed ? config::kPositionFeedbackTimeoutUs
+                             : config::kFeedbackTimeoutUs;
+        if (consecutive_feedback_errors >= maximum_errors ||
+            micros() - last_feedback_us > freshness_limit_us) {
+          odrive_online = false;
+          char message[112]{};
+          std::snprintf(
+              message, sizeof(message),
+              "ODrive UART feedback failed after %lu tries (age %lu ms)",
+              static_cast<unsigned long>(consecutive_feedback_errors),
+              static_cast<unsigned long>((micros() - last_feedback_us) / 1000U));
+          enterFault(message, FaultReferencePolicy::kInvalidate);
+        }
+      } else {
+        // Advance the lower-rate position feedback schedule only on success. A
+        // failed request remains due, so the very next control iteration retries
+        // instead of spending another tick waiting for the nominal period.
+        if (position_managed) last_position_feedback_poll_ms = now_ms;
+        consecutive_feedback_errors = 0U;
       }
-    } else {
-      // Advance the lower-rate position feedback schedule only on success. A
-      // failed request remains due, so the very next control iteration retries
-      // instead of spending another tick waiting for the nominal period.
-      if (position_managed) last_position_feedback_poll_ms = now_ms;
-      consecutive_feedback_errors = 0U;
     }
-  } else if (now_ms - last_inactive_feedback_ms >= 20U) {
+  } else if (odrive_ascii::inactiveFeedbackDue(
+                 isActive(), now_ms, last_inactive_feedback_ms, 20U)) {
     last_inactive_feedback_ms = now_ms;
     if (!readODriveFeedback()) odrive_online = false;
   }

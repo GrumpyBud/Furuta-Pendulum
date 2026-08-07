@@ -8,6 +8,16 @@
 
 namespace odrive_ascii {
 
+// Background feedback polling is only for a disarmed controller. Keeping this
+// decision in one place prevents an active control tick whose scheduled poll is
+// not yet due from falling through to the shorter inactive UART transaction.
+inline bool inactiveFeedbackDue(const bool controller_active,
+                                const uint32_t now_ms,
+                                const uint32_t last_poll_ms,
+                                const uint32_t period_ms) {
+  return !controller_active && now_ms - last_poll_ms >= period_ms;
+}
+
 inline uint8_t checksum(const char* text, const size_t length) {
   uint8_t result = 0;
   for (size_t index = 0; index < length; ++index) {
