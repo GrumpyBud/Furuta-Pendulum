@@ -112,6 +112,9 @@ constexpr float kArmAngleLimitRad = 2.4F;
 constexpr float kArmTravelPredictionSeconds = 0.080F;
 constexpr float kArmVelocityLimitRadS =
     kODriveConfiguredVelocityLimitTurnsPerSecond * furuta::kTwoPi;
+// This filtered-rate stop applies to setup, upright tuning, and balance—not
+// energy swing-up, where high bottom speed is required and energy feedback is
+// the appropriate regulator.
 constexpr float kPendulumVelocityLimitRadS = 50.0F;
 // A Furuta pendulum is fastest near hanging and must slow near upright. Reject
 // only steps outside this angle-dependent raw envelope before they contaminate

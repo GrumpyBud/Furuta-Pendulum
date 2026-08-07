@@ -42,6 +42,10 @@ inline float pendulumRawVelocityEnvelope(
          (hanging_limit_rad_s - upright_limit_rad_s) * down_fraction;
 }
 
+inline bool pendulumVelocityGateEnabled(const bool swing_up_active) {
+  return !swing_up_active;
+}
+
 inline float lowPass(const float previous, const float sample,
                      const float cutoff_hz, const float dt_s) {
   const float alpha = 1.0F - std::exp(-kTwoPi * cutoff_hz * dt_s);

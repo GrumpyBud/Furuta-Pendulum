@@ -524,7 +524,8 @@ bool stateIsHealthy(const uint32_t now_us) {
   } else if (std::fabs(state.arm_velocity_rad_s) >
              config::kArmVelocityLimitRadS) {
     enterFault("arm overspeed");
-  } else if (std::fabs(state.pendulum_velocity_rad_s) >
+  } else if (furuta::pendulumVelocityGateEnabled(mode == Mode::kSwingUp) &&
+             std::fabs(state.pendulum_velocity_rad_s) >
              config::kPendulumVelocityLimitRadS) {
     enterFault("pendulum overspeed");
   }

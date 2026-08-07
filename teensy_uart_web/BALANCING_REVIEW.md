@@ -197,8 +197,15 @@ This plausibility rejection is deliberately separate from SPI/parity read
 errors: a second consecutive excessive step stops as `pendulum overspeed`
 while preserving zero, whereas three real encoder read failures retain the
 encoder fault and reference invalidation. Plausible filtered motion above the
-lower `50 rad/s` operating limit still faults immediately, and wrap-boundary
-behavior is covered by native tests.
+lower `50 rad/s` operating limit still faults outside energy swing-up, and
+wrap-boundary behavior is covered by native tests. `SWING_UP` deliberately
+does not apply that filtered pendulum-rate stop: high bottom speed is the
+mechanism by which kinetic energy becomes height, and the energy error itself
+commands braking above target. The much wider angle-dependent raw-step check
+remains active to reject a discontinuous sensor sample. Torque/current clamps,
+the ODrive velocity envelope, predictive arm travel, arm overspeed, the
+catch-speed gate, dead-man, and watchdog remain active. Once mode changes to
+`BALANCE`, the strict filtered pendulum-rate gate applies again.
 
 ODrive's torque-mode velocity limiter is enabled on this mechanism. Its
 available torque is reduced according to `vel_limit` and `vel_gain`, including
