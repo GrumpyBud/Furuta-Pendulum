@@ -64,6 +64,7 @@ constexpr uint32_t kUartResponseTimeoutUs = 4500;
 // disarmed setup/arming verification, never inside the active 200 Hz loop.
 constexpr uint32_t kUartConfigurationResponseTimeoutUs = 12000;
 constexpr uint32_t kFeedbackTimeoutUs = 15000;
+constexpr uint32_t kMaximumConsecutiveFeedbackErrors = 2;
 constexpr uint32_t kODriveHealthPollMs = 200;
 constexpr uint32_t kODriveHealthRetryMs = 10;
 constexpr uint32_t kMaximumConsecutiveHealthQueryErrors = 3;
@@ -183,7 +184,7 @@ constexpr float kSwingCenterPositionGain = 20.0F;
 constexpr float kSwingCenterVelocityGain = 0.167F;
 constexpr float kSwingCenterVelocityIntegratorGain = 0.333F;
 constexpr float kSwingCenterTorqueLimitNm = 0.300F;
-constexpr uint32_t kSwingCenterCommandPeriodMs = 20;
+constexpr uint32_t kSwingCenterWatchdogFeedPeriodMs = 20;
 constexpr float kSwingCenterAngleToleranceRad = 0.020F;
 constexpr float kSwingCenterRateToleranceRadS = 0.050F;
 constexpr uint32_t kSwingCenterTimeoutMs = 12000;
@@ -243,8 +244,8 @@ static_assert(kSwingPrepositionStartArmAngleRad < kArmAngleLimitRad,
 static_assert(kSwingCenterVelocityLimitTurnsS * furuta::kTwoPi <
                   kArmVelocityLimitRadS,
               "automatic centering speed must remain below arm overspeed");
-static_assert(kSwingCenterCommandPeriodMs < 50U,
-              "position commands must feed the 50 ms ODrive watchdog");
+static_assert(kSwingCenterWatchdogFeedPeriodMs < 50U,
+              "position hold must feed the 50 ms ODrive watchdog");
 static_assert(kODriveHealthRetryMs < kODriveHealthPollMs &&
                   kMaximumConsecutiveHealthQueryErrors > 1U,
               "ODrive health queries must retry quickly before faulting");

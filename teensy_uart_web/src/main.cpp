@@ -156,6 +156,14 @@ class ODriveUart {
     return send(command);
   }
 
+  bool feedWatchdog() {
+    char command[12]{};
+    const int written =
+        std::snprintf(command, sizeof(command), "u %u", config::kODriveAxis);
+    return written > 0 && static_cast<size_t>(written) < sizeof(command) &&
+           send(command);
+  }
+
   bool writeProperty(const char* property, const char* value) {
     char command[112]{};
     const int written = std::snprintf(command, sizeof(command), "w %s %s",
@@ -273,10 +281,11 @@ uint32_t tuning_started_ms = 0;
 uint32_t run_started_ms = 0;
 uint32_t swing_phase_started_ms = 0;
 uint32_t swing_settle_ready_ms = 0;
-uint32_t last_position_command_ms = 0;
+uint32_t last_position_watchdog_feed_ms = 0;
 uint32_t browser_deadman_ms = 0;
 uint32_t last_state_sample_us = 0;
 uint32_t consecutive_encoder_errors = 0;
+uint32_t consecutive_feedback_errors = 0;
 uint32_t consecutive_health_query_errors = 0;
 uint32_t consecutive_deadline_misses = 0;
 uint32_t last_tick_duration_us = 0;
@@ -364,7 +373,6 @@ void enterFault(
 
 bool readODriveFeedback() {
   if (!odrive.feedback(arm_position_turns, arm_velocity_turns_s)) {
-    odrive_online = false;
     return false;
   }
   odrive_online = true;
@@ -496,16 +504,26 @@ void runControlTick() {
                  : config::kODriveInactiveHealthPollMs;
   const bool health_poll_due =
       now_ms - last_health_poll_ms >= health_interval_ms;
+  bool feedback_missed = false;
   if (health_poll_due) {
     pollODriveHealth(now_ms);
   } else if (isActive()) {
     if (!readODriveFeedback()) {
-      enterFault("ODrive UART feedback failed",
-                 FaultReferencePolicy::kInvalidate);
+      feedback_missed = true;
+      ++consecutive_feedback_errors;
+      if (consecutive_feedback_errors >=
+              config::kMaximumConsecutiveFeedbackErrors ||
+          micros() - last_feedback_us > config::kFeedbackTimeoutUs) {
+        odrive_online = false;
+        enterFault("ODrive UART feedback failed after retry",
+                   FaultReferencePolicy::kInvalidate);
+      }
+    } else {
+      consecutive_feedback_errors = 0U;
     }
   } else if (now_ms - last_inactive_feedback_ms >= 20U) {
     last_inactive_feedback_ms = now_ms;
-    static_cast<void>(readODriveFeedback());
+    if (!readODriveFeedback()) odrive_online = false;
   }
 
   const uint32_t sample_us = micros();
@@ -524,7 +542,10 @@ void runControlTick() {
     return;
   }
 
-  if (!isActive() || !stateIsHealthy(micros())) return;
+  // Do not calculate or refresh a motor command from a stale arm sample. The
+  // existing command remains under the 50 ms ODrive watchdog while the next
+  // 5 ms tick retries feedback.
+  if (feedback_missed || !isActive() || !stateIsHealthy(micros())) return;
 
   float requested_torque = 0.0F;
   if (mode == Mode::kTuning) {
@@ -545,7 +566,7 @@ void runControlTick() {
       return;
     }
     if (!health_poll_due && !commandODriveCenter(now_ms)) {
-      enterFault("ODrive filtered-position command failed",
+      enterFault("ODrive position-hold watchdog feed failed",
                  FaultReferencePolicy::kInvalidate);
       return;
     }
@@ -566,7 +587,7 @@ void runControlTick() {
       return;
     }
     if (!health_poll_due && !commandODriveCenter(now_ms)) {
-      enterFault("ODrive position-hold command failed",
+      enterFault("ODrive position-hold watchdog feed failed",
                  FaultReferencePolicy::kInvalidate);
       return;
     }
@@ -675,16 +696,15 @@ bool nearlyEqual(const float actual, const float expected,
 }
 
 bool commandODriveCenter(const uint32_t now_ms) {
-  if (now_ms - last_position_command_ms <
-      config::kSwingCenterCommandPeriodMs) {
+  if (now_ms - last_position_watchdog_feed_ms <
+      config::kSwingCenterWatchdogFeedPeriodMs) {
     return true;
   }
-  if (!odrive.setPosition(arm_zero_turns,
-                          config::kSwingCenterVelocityLimitTurnsS,
-                          config::kSwingCenterTorqueLimitNm)) {
-    return false;
-  }
-  last_position_command_ms = now_ms;
+  // The target was written and read back during arming. ODrive retains and
+  // filters it internally; use the short update command instead of repeatedly
+  // streaming the much longer q command into the time-critical UART link.
+  if (!odrive.feedWatchdog()) return false;
+  last_position_watchdog_feed_ms = now_ms;
   return true;
 }
 
@@ -952,7 +972,7 @@ bool armODrivePosition() {
     return fail("ODrive position feedback failed immediately after arming");
   }
   commanded_torque_nm = 0.0F;
-  last_position_command_ms = millis();
+  last_position_watchdog_feed_ms = millis();
   return true;
 }
 
@@ -969,7 +989,8 @@ void disarm(const bool acknowledge_fault) {
   guarded_swing_trial = false;
   swing_phase_started_ms = 0U;
   swing_settle_ready_ms = 0U;
-  last_position_command_ms = 0U;
+  last_position_watchdog_feed_ms = 0U;
+  consecutive_feedback_errors = 0U;
   consecutive_health_query_errors = 0U;
   commanded_torque_nm = 0.0F;
   if (acknowledge_fault) fault_reason[0] = '\0';

@@ -139,7 +139,7 @@ Blind automatic gain search on an unstable mechanism can command unsafe motion a
 ## Troubleshooting
 
 - **ODrive UART never turns green:** confirm UART is enabled and saved, baud is 115200, TX/RX are crossed, and `V+ ISO` is powered from Teensy 3.3 V with `GND ISO` connected.
-- **UART faults during motion:** shorten/separate UART wiring, verify the ODrive is not emitting unrelated debug text, and inspect `loop_us`/`max_loop_us` in the downloaded CSV. A lone missed active-error property reply is retried after 10 ms while normal feedback remains mandatory; only genuine feedback loss invalidates zero immediately. UART ASCII is more interference-sensitive and timing-limited than CAN.
+- **UART faults during motion:** shorten/separate UART wiring, verify the ODrive is not emitting unrelated debug text, and inspect `loop_us`/`max_loop_us` in the downloaded CSV. Filtered position is sent once and retained inside ODrive; a short `u 0` feeds its watchdog without crowding the next feedback request. One missed cyclic reply is retried on the next 5 ms tick without calculating a new command from stale state; a second miss or 15 ms without feedback faults and invalidates zero. A lone missed active-error property reply is retried after 10 ms while normal feedback remains mandatory. UART ASCII is more interference-sensitive and timing-limited than CAN.
 - **Encoder says weak/strong magnet:** correct magnet centring and gap before testing motion.
 - **SPI errors increase:** shorten SPI wiring, separate it from motor cables, or conservatively lower `kEncoderSpiHz`.
 - **Hanging angle is not near -180° after zero:** the zero was saved in the wrong pose or the sensor is not reporting one clean mechanical revolution.
