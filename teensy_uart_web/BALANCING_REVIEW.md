@@ -152,7 +152,7 @@ Because the continuous energy term is exactly zero when the pendulum is perfectl
 
 Before that energy phase, the controller performs two explicit preparation states using ODrive's native position loop. `CENTERING` selects `POSITION_CONTROL` plus `POS_FILTER`, seeds the setpoint at the measured position, and then targets the saved arm zero. The configuration is read back before motion: filter bandwidth `20 1/s`, velocity limit `0.5 turn/s`, position gain `20`, velocity gain `0.167`, velocity-integrator gain `0.333`, velocity limiting enabled, and command torque limited to `0.300 N m`. ODrive retains and filters that target internally; `CENTERING` and `SETTLING` feed its watchdog every 20 ms with the short `u 0` command instead of repeatedly transmitting the longer position command. These ODrive-managed states request arm feedback at 100 Hz, allow up to 9 ms for a reply, and stop after three consecutive misses or 35 ms without a valid reply—still before the 50 ms hardware watchdog. The time-critical Teensy torque loop keeps its original 200 Hz, 4.5 ms transaction schedule and 15 ms freshness limit. The arm must remain within `0.020 rad` at less than `0.050 rad/s`, and the pendulum within `0.040 rad` of hanging at less than `0.120 rad/s`, for `2.5 s` continuously. Settling uses separate low-pass rate estimates: 5 Hz for the ODrive arm velocity and 3 Hz for the pendulum encoder. Hardware logs showed the arm confined to `0.00122 rad` peak-to-peak while its instantaneous velocity estimate spiked to `0.0822 rad/s`; filtering prevents those measurement spikes and stationary AS5048A count jitter from resetting the timer, while tests verify sustained arm motion and the measured approximately 1.4 Hz pendulum oscillation remain detectable. The original estimates remain unchanged for balance control. Any real gate excursion resets the timer. Centering has a 12-second timeout and settling has a 20-second timeout. Once settled, the code changes input mode to passthrough, sends zero torque, and reads back torque mode `1` and input mode `1`; swing-up cannot begin if that handoff fails.
 
-The guarded request still has a broad pre-arm envelope: the stopped arm must be within `1.75 rad` of saved center and the pendulum generally downward within `0.80 rad`; rate gates reject an already fast-moving mechanism. Guarded swing-up and its balance catch have a final 10 A-equivalent `0.3063 N m` clamp matching the configured ODrive soft limit, while the user-selectable swing ceiling stops at `0.300 N m`. Upright tuning remains independently limited to 4 A-equivalent `0.1225 N m`. Runtime energy gain, arm damping, arm centring, startup nudge, and swing torque ceiling are nonnegative and bounded in both the browser and firmware. All preparation and active phases require the focused Spacebar dead-man. Unrestricted automatic mode remains disabled.
+The guarded request still has a broad pre-arm envelope: the stopped arm must be within `1.75 rad` of saved center and the pendulum generally downward within `0.80 rad`; rate gates reject an already fast-moving mechanism. Guarded swing-up has a final 15 A-equivalent `0.4594 N m` clamp below the reported 18 A ODrive hard maximum, while the user-selectable swing ceiling stops at `0.450 N m`. The balance catch immediately returns to the lower 10 A-equivalent `0.3063 N m` commissioning clamp, and upright tuning remains independently limited to 4 A-equivalent `0.1225 N m`. Runtime energy gain, arm damping, arm centring, startup nudge, and swing torque ceiling are nonnegative and bounded in both the browser and firmware. All preparation and active phases require the focused Spacebar dead-man. Unrestricted automatic mode remains disabled.
 
 ## Switching and saturation
 
@@ -163,10 +163,12 @@ Every controller path reaches a final torque clamp and slew limiter. Tuning has 
 After the `18 A` ODrive hard limit was reported, the old `0.75 N m` firmware
 clamp was found to correspond to `24.49 A` at the measured torque constant. The
 commissioning clamps are now defined in current units and converted to torque:
-`10.0 A` overall and swing-up (including guarded trials), and `4.0 A` for
-upright tuning. The resulting torque limits are approximately `0.3063` and
-`0.1225 N m`, respectively. Automatic centering and the user-selectable swing
-ceiling stop at `0.300 N m`; centering also has a `0.5 turn/s` speed ceiling.
+`10.0 A` for balance, `15.0 A` for swing-up (including guarded trials), and
+`4.0 A` for upright tuning. The resulting torque limits are approximately
+`0.3063`, `0.4594`, and `0.1225 N m`, respectively. Automatic centering remains
+at `0.300 N m`; the user-selectable swing ceiling stops at `0.450 N m`, and
+centering retains its `0.5 turn/s` speed ceiling. The higher swing limit only
+exists physically when ODrive's motor-current soft maximum is at least `15 A`.
 
 ## Timing and transport review
 

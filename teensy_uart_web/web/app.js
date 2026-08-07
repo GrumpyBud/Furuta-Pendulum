@@ -420,7 +420,7 @@
       { name: "Arm damping", input: elements.swingArmDamping, maximum: 1 },
       { name: "Arm centering", input: elements.swingArmCentering, maximum: 1 },
       { name: "Startup nudge", input: elements.swingStartupKick, maximum: 0.30 },
-      { name: "Maximum swing torque", input: elements.swingTorqueLimit, maximum: 0.30 }
+      { name: "Maximum swing torque", input: elements.swingTorqueLimit, maximum: 0.45 }
     ];
     const invalid = settings.find(({ input, maximum }) => {
       const value = Number(input.value);
@@ -463,7 +463,7 @@
     let tick = 0;
     state.demoTimer = setInterval(() => {
       tick += 1; const pendulum = -Math.PI + 0.05 * Math.sin(tick / 12), arm = 0.15 * Math.sin(tick / 30);
-      processLine(`@T,${tick * 40},TEST,${arm},${pendulum},0.02,0.08,0,1,1,OK,1,8192,118,0,0,-0.07000,1.60000,-0.06920,0.09000,0,2100,2900,1,0,1,0,0.8000,0.0300,0.0400,0.1800,0.3000,0.01,0.03,-`);
+      processLine(`@T,${tick * 40},TEST,${arm},${pendulum},0.02,0.08,0,1,1,OK,1,8192,118,0,0,-0.07000,1.60000,-0.06920,0.09000,0,2100,2900,1,0,1,0,0.8000,0.0300,0.0400,0.1800,0.4500,0.01,0.03,-`);
     }, 40);
     elements.connectButton.textContent = "Demo active"; elements.connectButton.disabled = true;
     logEvent("Demonstration mode started; no commands reach hardware.");

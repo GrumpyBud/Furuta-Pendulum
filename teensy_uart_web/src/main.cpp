@@ -722,8 +722,14 @@ void runControlTick() {
           requested_torque, -config::kSwingTuningTorqueLimitNm,
           config::kSwingTuningTorqueLimitNm);
     }
+    // Swing-up has a separately reviewed phase-current envelope. As soon as
+    // the pendulum is caught and mode changes to BALANCE, the original lower
+    // commissioning clamp applies again.
+    const float final_torque_limit_nm =
+        mode == Mode::kSwingUp ? config::kSwingTorqueLimitNm
+                               : config::kTorqueLimitNm;
     requested_torque = furuta::clamp(
-        requested_torque, -config::kTorqueLimitNm, config::kTorqueLimitNm);
+        requested_torque, -final_torque_limit_nm, final_torque_limit_nm);
   }
 
   commanded_torque_nm = furuta::slewLimit(

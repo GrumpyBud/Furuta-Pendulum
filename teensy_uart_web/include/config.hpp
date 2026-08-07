@@ -18,7 +18,7 @@ constexpr float kMotorTurnsToArmRadians =
     furuta::kTwoPi / kMotorRevolutionsPerArmRevolution;
 // Recorded ODrive/power hardware values. These do not program the ODrive.
 // Confirmed conservative motor-current limits for commissioning.
-constexpr float kODriveConfiguredCurrentSoftMaxAmp = 10.0F;
+constexpr float kODriveConfiguredCurrentSoftMaxAmp = 15.0F;
 constexpr float kODriveConfiguredCurrentHardMaxAmp = 18.0F;
 constexpr float kODriveConfiguredVelocityLimitTurnsPerSecond = 1.5F;
 constexpr bool kODriveTorqueModeVelocityLimitEnabled = true;
@@ -90,8 +90,8 @@ constexpr float kVelocityFilterHz = 25.0F;
 // converted to torque with the measured ODrive torque constant. These are
 // firmware command clamps, not a substitute for matching ODrive limits.
 constexpr float kCommissioningPhaseCurrentLimitAmp = 10.0F;
-constexpr float kSwingPhaseCurrentLimitAmp = 10.0F;
-constexpr float kSwingTuningPhaseCurrentLimitAmp = 10.0F;
+constexpr float kSwingPhaseCurrentLimitAmp = 15.0F;
+constexpr float kSwingTuningPhaseCurrentLimitAmp = 15.0F;
 constexpr float kTuningPhaseCurrentLimitAmp = 4.0F;
 constexpr float kTorqueLimitNm =
     kCommissioningPhaseCurrentLimitAmp * kMotorTorqueConstantNmPerAmp;
@@ -175,9 +175,9 @@ constexpr bool kAutomaticSwingUpEnabled = false;
 // dead-man, automatic speed-limited preparation, and a 20 s energy timeout.
 constexpr bool kSwingTuningEnabled = true;
 constexpr furuta::SwingSettings kDefaultSwingSettings{
-    0.80F, 0.030F, 0.040F, 0.180F, 0.300F};
+    0.80F, 0.030F, 0.040F, 0.180F, 0.450F};
 constexpr furuta::SwingSettings kSwingSettingLimits{
-    20.00F, 1.000F, 1.000F, 0.300F, 0.300F};
+    20.00F, 1.000F, 1.000F, 0.300F, 0.450F};
 constexpr uint32_t kSwingStartupKickPhaseMs = 180;
 // A guarded run may begin away from center. ODrive's filtered position mode
 // moves the arm to its saved zero with the hardware-tested gains below, then
@@ -241,13 +241,16 @@ static_assert(kUprightArmAxisInertiaKgM2 * kPendulumInertiaKgM2 >
 static_assert(!kAutomaticSwingUpEnabled || kMechanismSetupComplete,
               "automatic swing-up requires completed upright setup");
 static_assert(kCommissioningPhaseCurrentLimitAmp <
-                  kODriveConfiguredCurrentHardMaxAmp,
-              "firmware current envelope must stay below ODrive hard max");
-static_assert(kTuningPhaseCurrentLimitAmp <= kSwingPhaseCurrentLimitAmp &&
-                  kSwingTuningPhaseCurrentLimitAmp <=
-                      kSwingPhaseCurrentLimitAmp &&
+                  kODriveConfiguredCurrentHardMaxAmp &&
+                  kSwingPhaseCurrentLimitAmp <
+                      kODriveConfiguredCurrentHardMaxAmp &&
                   kSwingPhaseCurrentLimitAmp <=
-                      kCommissioningPhaseCurrentLimitAmp,
+                      kODriveConfiguredCurrentSoftMaxAmp,
+              "firmware current envelopes must stay inside ODrive limits");
+static_assert(kTuningPhaseCurrentLimitAmp <=
+                      kCommissioningPhaseCurrentLimitAmp &&
+                  kSwingTuningPhaseCurrentLimitAmp <=
+                      kSwingPhaseCurrentLimitAmp,
               "current limit tiers must be ordered");
 static_assert(kSwingCenterTorqueLimitNm <= kSwingTuningTorqueLimitNm,
               "automatic centering must not exceed swing tuning torque");

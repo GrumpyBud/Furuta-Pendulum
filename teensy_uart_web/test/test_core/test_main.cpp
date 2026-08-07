@@ -154,17 +154,17 @@ void test_gain_limits_follow_the_reviewed_model_profile() {
 }
 
 void test_swing_settings_reject_negative_non_finite_and_excessive_values() {
-  const furuta::SwingSettings limits{20.0F, 1.0F, 1.0F, 0.30F, 0.30F};
+  const furuta::SwingSettings limits{20.0F, 1.0F, 1.0F, 0.30F, 0.45F};
   TEST_ASSERT_TRUE(furuta::swingSettingsWithinLimits(
-      {0.8F, 0.03F, 0.04F, 0.18F, 0.30F}, limits));
+      {0.8F, 0.03F, 0.04F, 0.18F, 0.45F}, limits));
   TEST_ASSERT_FALSE(furuta::swingSettingsWithinLimits(
-      {-0.1F, 0.03F, 0.04F, 0.18F, 0.30F}, limits));
+      {-0.1F, 0.03F, 0.04F, 0.18F, 0.45F}, limits));
   TEST_ASSERT_FALSE(furuta::swingSettingsWithinLimits(
-      {20.1F, 0.03F, 0.04F, 0.18F, 0.30F}, limits));
+      {20.1F, 0.03F, 0.04F, 0.18F, 0.45F}, limits));
   TEST_ASSERT_FALSE(furuta::swingSettingsWithinLimits(
-      {NAN, 0.03F, 0.04F, 0.18F, 0.30F}, limits));
+      {NAN, 0.03F, 0.04F, 0.18F, 0.45F}, limits));
   TEST_ASSERT_FALSE(furuta::swingSettingsWithinLimits(
-      {0.8F, 0.03F, 0.04F, 0.18F, 0.301F}, limits));
+      {0.8F, 0.03F, 0.04F, 0.18F, 0.451F}, limits));
 }
 
 void test_swing_energy_law_pumps_in_the_direction_of_motion() {
