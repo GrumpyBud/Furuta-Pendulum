@@ -291,6 +291,7 @@ float arm_velocity_turns_s = 0.0F;
 float arm_zero_turns = 0.0F;
 float last_pendulum_angle = -furuta::kPi;
 float pendulum_velocity = 0.0F;
+float settling_pendulum_velocity = 0.0F;
 float commanded_torque_nm = 0.0F;
 uint32_t last_feedback_us = 0;
 uint32_t next_control_us = 0;
@@ -425,6 +426,9 @@ bool sampleEncoder(const float dt_s) {
       furuta::wrapAngle(pendulum_angle - last_pendulum_angle) / dt_s;
   pendulum_velocity = furuta::lowPass(
       pendulum_velocity, raw_velocity, config::kVelocityFilterHz, dt_s);
+  settling_pendulum_velocity = furuta::lowPass(
+      settling_pendulum_velocity, raw_velocity,
+      config::kSwingSettleVelocityFilterHz, dt_s);
   last_pendulum_angle = pendulum_angle;
   const float arm_scale =
       config::kMotorTurnsToArmRadians * config::kMotorDirection;
@@ -646,7 +650,9 @@ void runControlTick() {
     }
     commanded_torque_nm = 0.0F;
     const bool settled = furuta::swingPreparationSettled(
-        state, config::kSwingCenterAngleToleranceRad,
+        {state.arm_angle_rad, state.pendulum_angle_rad,
+         state.arm_velocity_rad_s, settling_pendulum_velocity},
+        config::kSwingCenterAngleToleranceRad,
         config::kSwingCenterRateToleranceRadS,
         config::kSwingSettleDownToleranceRad,
         config::kSwingSettlePendulumRateRadS);
@@ -1073,6 +1079,7 @@ void zeroSystem() {
   arm_zero_turns = arm_position_turns;
   last_pendulum_angle = -furuta::kPi;
   pendulum_velocity = 0.0F;
+  settling_pendulum_velocity = 0.0F;
   zero_valid = true;
   event("INFO", "ZEROED", "reference saved; pendulum must have been hanging down");
 }

@@ -69,6 +69,16 @@
     return Number.isFinite(parsed) ? parsed : 0;
   }
 
+  function displayedPendulumDegrees(sample) {
+    const degrees = sample.pendulum * 180 / Math.PI;
+    // At hanging-down, +180 and -180 are the same physical angle. Showing the
+    // magnitude during preparation avoids drawing a fake 360-degree jump when
+    // encoder noise crosses that representation boundary.
+    return ["CENTERING", "SETTLING"].includes(sample.mode)
+      ? Math.abs(degrees)
+      : degrees;
+  }
+
   function parseTelemetry(parts, original) {
     if (parts.length < 33) return;
     state.sample = {
@@ -89,7 +99,7 @@
     state.lastMessageAt = Date.now();
     state.telemetryRows.push(original);
     if (state.telemetryRows.length > 15000) state.telemetryRows.shift();
-    state.history.push({ pendulum: state.sample.pendulum * 180 / Math.PI, arm: state.sample.arm * 180 / Math.PI });
+    state.history.push({ pendulum: displayedPendulumDegrees(state.sample), arm: state.sample.arm * 180 / Math.PI });
     if (state.history.length > 300) state.history.shift();
     render();
     drawChart();
@@ -265,7 +275,7 @@
 
     if (!sample) return;
     const degrees = 180 / Math.PI;
-    elements.pendulumDegrees.textContent = (sample.pendulum * degrees).toFixed(1);
+    elements.pendulumDegrees.textContent = displayedPendulumDegrees(sample).toFixed(1);
     elements.armDegrees.textContent = (sample.arm * degrees).toFixed(1);
     elements.pendulumRate.textContent = sample.pendulumRate.toFixed(2);
     elements.armRate.textContent = sample.armRate.toFixed(2);

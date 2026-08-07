@@ -59,6 +59,42 @@ void test_down_angle_error_handles_wrap_boundary() {
                            furuta::downAngleError(0.0F));
 }
 
+void test_wrap_boundary_does_not_create_velocity_spike() {
+  constexpr float epsilon = 0.001F;
+  const float delta = furuta::wrapAngle(
+      (-furuta::kPi + epsilon) - (furuta::kPi - epsilon));
+  TEST_ASSERT_FLOAT_WITHIN(1.0e-6F, 2.0F * epsilon, delta);
+}
+
+void test_settling_filter_rejects_count_jitter_but_tracks_oscillation() {
+  constexpr float dt_s = 0.005F;
+  constexpr float settling_filter_hz = 3.0F;
+  const float one_count_rate =
+      (furuta::kTwoPi / 16384.0F) / dt_s;
+  float filtered = 0.0F;
+  float maximum_jitter = 0.0F;
+  for (int sample = 0; sample < 400; ++sample) {
+    const float raw = sample % 2 == 0 ? one_count_rate : -one_count_rate;
+    filtered = furuta::lowPass(filtered, raw, settling_filter_hz, dt_s);
+    maximum_jitter = std::fmax(maximum_jitter, std::fabs(filtered));
+  }
+  TEST_ASSERT_TRUE(maximum_jitter < 0.120F);
+
+  filtered = 0.0F;
+  float maximum_oscillation = 0.0F;
+  for (int sample = 0; sample < 400; ++sample) {
+    const float time_s = sample * dt_s;
+    const float raw = 0.8F *
+        std::cos(furuta::kTwoPi * 1.4F * time_s);
+    filtered = furuta::lowPass(filtered, raw, settling_filter_hz, dt_s);
+    if (sample > 200) {
+      maximum_oscillation =
+          std::fmax(maximum_oscillation, std::fabs(filtered));
+    }
+  }
+  TEST_ASSERT_TRUE(maximum_oscillation > 0.5F);
+}
+
 void test_swing_preparation_requires_every_strict_settling_gate() {
   constexpr float arm_angle_tolerance = 0.020F;
   constexpr float arm_rate_tolerance = 0.050F;
@@ -66,6 +102,10 @@ void test_swing_preparation_requires_every_strict_settling_gate() {
   constexpr float pendulum_rate_tolerance = 0.120F;
   TEST_ASSERT_TRUE(furuta::swingPreparationSettled(
       {0.0F, -furuta::kPi, 0.0F, 0.0F}, arm_angle_tolerance,
+      arm_rate_tolerance, down_angle_tolerance,
+      pendulum_rate_tolerance));
+  TEST_ASSERT_TRUE(furuta::swingPreparationSettled(
+      {0.0F, furuta::kPi, 0.0F, 0.0F}, arm_angle_tolerance,
       arm_rate_tolerance, down_angle_tolerance,
       pendulum_rate_tolerance));
   TEST_ASSERT_FALSE(furuta::swingPreparationSettled(
@@ -200,6 +240,8 @@ int main(int, char**) {
   RUN_TEST(test_keepalive_freshness_boundaries_and_timer_wrap);
   RUN_TEST(test_projected_travel_counts_only_outward_motion);
   RUN_TEST(test_down_angle_error_handles_wrap_boundary);
+  RUN_TEST(test_wrap_boundary_does_not_create_velocity_spike);
+  RUN_TEST(test_settling_filter_rejects_count_jitter_but_tracks_oscillation);
   RUN_TEST(test_swing_preparation_requires_every_strict_settling_gate);
   RUN_TEST(test_gain_limits_follow_the_reviewed_model_profile);
   RUN_TEST(test_swing_settings_reject_negative_non_finite_and_excessive_values);

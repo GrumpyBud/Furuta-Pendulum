@@ -198,6 +198,11 @@ constexpr float kSwingCenterRateToleranceRadS = 0.050F;
 constexpr uint32_t kSwingCenterTimeoutMs = 12000;
 constexpr float kSwingSettleDownToleranceRad = 0.040F;
 constexpr float kSwingSettlePendulumRateRadS = 0.120F;
+// The 25 Hz balance-rate estimate intentionally reacts quickly, but a single
+// AS5048A count at 200 Hz is already about 0.077 rad/s. A separate slow rate
+// estimate prevents stationary count jitter from resetting the 2.5 s settle
+// timer while still passing the measured ~1.4 Hz pendulum oscillation.
+constexpr float kSwingSettleVelocityFilterHz = 3.0F;
 constexpr uint32_t kSwingSettleHoldMs = 2500;
 constexpr uint32_t kSwingSettleTimeoutMs = 20000;
 constexpr float kCatchAngleRad = 0.14F;
@@ -264,6 +269,9 @@ static_assert(kSwingCenterInputFilterBandwidth > 0.0F &&
               "filtered-position gains must be valid");
 static_assert(kSwingSettleHoldMs < kSwingSettleTimeoutMs,
               "settling hold must fit inside settling timeout");
+static_assert(kSwingSettleVelocityFilterHz > 0.0F &&
+                  kSwingSettleVelocityFilterHz < kVelocityFilterHz,
+              "settling velocity filter must be slower than balance feedback");
 static_assert(kSwingSettleDownToleranceRad <
                   kSwingPrepositionStartDownToleranceRad &&
                   kSwingSettlePendulumRateRadS <
