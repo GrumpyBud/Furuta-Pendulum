@@ -552,7 +552,6 @@ void runControlTick() {
   if (health_poll_due) {
     pollODriveHealth(now_ms);
   } else if (isActive() && feedback_poll_due) {
-    if (position_managed) last_position_feedback_poll_ms = now_ms;
     const uint32_t feedback_response_timeout_us =
         position_managed ? config::kPositionFeedbackResponseTimeoutUs
                          : config::kUartResponseTimeoutUs;
@@ -578,6 +577,10 @@ void runControlTick() {
         enterFault(message, FaultReferencePolicy::kInvalidate);
       }
     } else {
+      // Advance the lower-rate position feedback schedule only on success. A
+      // failed request remains due, so the very next control iteration retries
+      // instead of spending another tick waiting for the nominal period.
+      if (position_managed) last_position_feedback_poll_ms = now_ms;
       consecutive_feedback_errors = 0U;
     }
   } else if (now_ms - last_inactive_feedback_ms >= 20U) {
@@ -814,6 +817,9 @@ bool switchODriveToTorqueControl() {
     return fail("ODrive mode mismatch during swing handoff");
   }
   commanded_torque_nm = 0.0F;
+  last_health_poll_ms = millis();
+  consecutive_feedback_errors = 0U;
+  consecutive_health_query_errors = 0U;
   return true;
 }
 
@@ -916,6 +922,9 @@ bool armODriveTorque() {
   if (!odrive.setTorque(0.0F)) {
     return fail("ODrive zero-torque watchdog feed failed after arming");
   }
+  last_health_poll_ms = millis();
+  consecutive_feedback_errors = 0U;
+  consecutive_health_query_errors = 0U;
   return true;
 }
 
@@ -1086,7 +1095,12 @@ bool armODrivePosition() {
   commanded_torque_nm = 0.0F;
   last_position_watchdog_feed_ms = millis();
   last_position_feedback_poll_ms = millis();
+  // Arming already performed comprehensive property verification. Start the
+  // periodic health interval here so the first active transaction is cyclic
+  // feedback, not another long property request.
+  last_health_poll_ms = millis();
   consecutive_feedback_errors = 0U;
+  consecutive_health_query_errors = 0U;
   return true;
 }
 
