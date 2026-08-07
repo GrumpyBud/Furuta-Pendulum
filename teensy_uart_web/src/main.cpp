@@ -813,8 +813,27 @@ bool switchODriveToTorqueControl() {
     return fail("ODrive rejected zero torque during swing handoff");
   }
 
+  // CENTERING deliberately overwrites vel_limit with 0.5 turn/s. ODrive's
+  // torque-mode velocity limiter uses vel_limit * vel_gain as its zero-speed
+  // torque allowance, so carrying 0.5 and 0.167 into swing-up silently limits
+  // the motor to about 0.0835 N m even when Teensy requests 0.45 N m. Restore
+  // and verify a separate torque-mode envelope before allowing any motion.
+  if (!odrive.writeFloatProperty(
+          "axis0.controller.config.vel_limit",
+          config::kSwingTorqueModeVelocityLimitTurnsS) ||
+      !odrive.writeFloatProperty("axis0.controller.config.vel_gain",
+                                 config::kSwingTorqueModeVelocityGain) ||
+      !odrive.writeProperty(
+          "axis0.controller.config.enable_torque_mode_vel_limit", "1") ||
+      !odrive.setTorque(0.0F)) {
+    return fail("ODrive rejected swing torque velocity envelope");
+  }
+
   uint32_t control_mode = 0;
   uint32_t input_mode = 0;
+  uint32_t torque_velocity_limit_enabled = 0;
+  float velocity_limit = 0.0F;
+  float velocity_gain = 0.0F;
   if (!odrive.readUnsigned("axis0.controller.config.control_mode",
                            control_mode,
                            config::kUartConfigurationResponseTimeoutUs) ||
@@ -826,9 +845,28 @@ bool switchODriveToTorqueControl() {
       !odrive.setTorque(0.0F)) {
     return fail("ODrive did not verify passthrough during swing handoff");
   }
-  if (control_mode != 1U || input_mode != 1U) {
-    return fail("ODrive mode mismatch during swing handoff");
+  if (!odrive.readFloat("axis0.controller.config.vel_limit", velocity_limit,
+                        config::kUartConfigurationResponseTimeoutUs) ||
+      !odrive.setTorque(0.0F) ||
+      !odrive.readFloat("axis0.controller.config.vel_gain", velocity_gain,
+                        config::kUartConfigurationResponseTimeoutUs) ||
+      !odrive.setTorque(0.0F) ||
+      !odrive.readUnsigned(
+          "axis0.controller.config.enable_torque_mode_vel_limit",
+          torque_velocity_limit_enabled,
+          config::kUartConfigurationResponseTimeoutUs) ||
+      !odrive.setTorque(0.0F)) {
+    return fail("ODrive did not verify swing torque velocity envelope");
   }
+  if (control_mode != 1U || input_mode != 1U ||
+      torque_velocity_limit_enabled != 1U ||
+      !nearlyEqual(velocity_limit,
+                   config::kSwingTorqueModeVelocityLimitTurnsS) ||
+      !nearlyEqual(velocity_gain, config::kSwingTorqueModeVelocityGain)) {
+    return fail("ODrive swing torque envelope readback mismatch");
+  }
+  event("INFO", "ODRIVE_TORQUE_ENVELOPE",
+        "verified 1.5 turn/s limit and 0.500 N m/(turn/s) slope");
   commanded_torque_nm = 0.0F;
   last_health_poll_ms = millis();
   consecutive_feedback_errors = 0U;

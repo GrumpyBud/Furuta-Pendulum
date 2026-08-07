@@ -178,6 +178,13 @@ constexpr furuta::SwingSettings kDefaultSwingSettings{
     2.00F, 0.030F, 0.180F, 0.220F, 0.450F};
 constexpr furuta::SwingSettings kSwingSettingLimits{
     20.00F, 1.000F, 1.000F, 0.300F, 0.450F};
+// Position preparation temporarily uses 0.5 turn/s and vel_gain 0.167. Before
+// torque swing-up, restore the independent 1.5 turn/s hardware envelope and a
+// limiter slope that does not silently clamp the requested 0.45 N m at low
+// speed. ODrive still tapers outward torque to zero at this velocity ceiling.
+constexpr float kSwingTorqueModeVelocityLimitTurnsS =
+    kODriveConfiguredVelocityLimitTurnsPerSecond;
+constexpr float kSwingTorqueModeVelocityGain = 0.500F;
 constexpr uint32_t kSwingStartupKickPhaseMs = 180;
 // Hardware logs with the old unguarded energy law plateaued 112 degrees from
 // upright while the arm walked to -1.55 rad. Preserve full pumping around the
@@ -265,6 +272,10 @@ static_assert(kSwingSettingLimits.startup_kick_nm <=
                   kSwingSettingLimits.torque_limit_nm <=
                       kSwingTuningTorqueLimitNm,
               "runtime swing settings must remain inside the hard clamp");
+static_assert(kSwingTorqueModeVelocityGain *
+                      kSwingTorqueModeVelocityLimitTurnsS >=
+                  kSwingSettingLimits.torque_limit_nm,
+              "torque velocity limiter must permit the swing ceiling at rest");
 static_assert(kSwingPrepositionStartArmAngleRad < kArmAngleLimitRad,
               "swing preparation must begin inside the arm travel limit");
 static_assert(kSwingTravelGuardStartRad > 0.0F &&

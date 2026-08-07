@@ -33,6 +33,18 @@ void test_slew_limit_bounds_both_directions() {
                            furuta::slewLimit(0.0F, 0.04F, 0.1F));
 }
 
+void test_swing_torque_velocity_envelope_preserves_authority() {
+  TEST_ASSERT_FLOAT_WITHIN(
+      1.0e-6F, 0.75F,
+      furuta::torqueModeVelocityAllowance(0.0F, 1.5F, 0.5F));
+  TEST_ASSERT_FLOAT_WITHIN(
+      1.0e-6F, 0.45F,
+      furuta::torqueModeVelocityAllowance(0.6F, 1.5F, 0.5F));
+  TEST_ASSERT_FLOAT_WITHIN(
+      1.0e-6F, 0.0F,
+      furuta::torqueModeVelocityAllowance(1.5F, 1.5F, 0.5F));
+}
+
 void test_keepalive_freshness_boundaries_and_timer_wrap() {
   TEST_ASSERT_FALSE(furuta::keepaliveFresh(false, 1000U, 900U, 450U));
   TEST_ASSERT_TRUE(furuta::keepaliveFresh(true, 1350U, 900U, 450U));
@@ -277,6 +289,7 @@ int main(int, char**) {
   RUN_TEST(test_wrap_angle_range_and_boundaries);
   RUN_TEST(test_balance_torque_uses_documented_state_order);
   RUN_TEST(test_slew_limit_bounds_both_directions);
+  RUN_TEST(test_swing_torque_velocity_envelope_preserves_authority);
   RUN_TEST(test_keepalive_freshness_boundaries_and_timer_wrap);
   RUN_TEST(test_projected_travel_counts_only_outward_motion);
   RUN_TEST(test_down_angle_error_handles_wrap_boundary);

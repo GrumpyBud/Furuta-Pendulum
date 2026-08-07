@@ -31,6 +31,15 @@ inline float slewLimit(const float previous, const float requested,
                previous + maximum_change);
 }
 
+inline float torqueModeVelocityAllowance(const float velocity_turns_s,
+                                         const float velocity_limit_turns_s,
+                                         const float velocity_gain) {
+  return std::fmax(
+      0.0F,
+      velocity_gain * (velocity_limit_turns_s -
+                       std::fabs(velocity_turns_s)));
+}
+
 inline bool keepaliveFresh(const bool held, const uint32_t now,
                            const uint32_t last, const uint32_t timeout) {
   return held && now - last <= timeout;

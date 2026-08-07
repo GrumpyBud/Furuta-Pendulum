@@ -161,12 +161,29 @@ active throughout. A replay on that failed trajectory reduced mean outward
 torque beyond the guard from `0.077 N m` to `0.015 N m`, while the stronger
 default increased mean absolute swing command from `0.256 N m` to `0.359 N m`.
 Replay is a control-logic regression check, not a prediction of the changed
-closed-loop trajectory, so the physical guarded trial remains authoritative.
+closed-loop trajectory. The next physical trial proved that limitation: closest
+approach regressed to `2.047 rad` (`117.3 degrees`) and the arm still reached
+`-1.43 rad`. Review of the complete handoff then found the controlling actuator
+fault described below; the replay had modeled requested rather than ODrive-
+limited torque and therefore could not validate the changed closed loop.
 
 The hardware-informed default is now `k_E = 2.0`, `k_d = 0.030`, and
 `k_c = 0.180`, with a `0.220 N m` startup nudge and the unchanged `0.450 N m`
 ceiling. The travel guard begins far inside both the `2.4 rad` predictive
 software stop and the requested `+/-pi` mechanical envelope.
+
+ODrive's torque-mode velocity limiter is enabled on this mechanism. Its
+available torque is reduced according to `vel_limit` and `vel_gain`, including
+at zero speed. Position preparation writes `0.5 turn/s` and `0.167 N m per
+(turn/s)`; the original handoff accidentally carried both values into torque
+mode, silently limiting zero-speed torque to about `0.0835 N m` even though the
+Teensy logged requests as high as `0.450 N m`. This was the primary reason both
+energy laws lacked arm authority. The corrected handoff explicitly writes and
+reads back a separate torque-mode envelope: the original `1.5 turn/s` velocity
+ceiling and a `0.500 N m per (turn/s)` limiter slope. That permits the full
+`0.450 N m` command through `0.6 turn/s`, then progressively reduces outward
+torque to zero at the unchanged `1.5 turn/s` hardware ceiling. The Teensy's
+independent `1.5 turn/s` feedback stop remains active.
 
 Because the continuous energy term is exactly zero when the pendulum is perfectly motionless at the bottom, the energy phase begins with one small positive bounded arm nudge, then immediately hands control to the energy law. This removes the mathematical deadlock without relying on encoder noise or an opposing kick that could remove the energy just added.
 
