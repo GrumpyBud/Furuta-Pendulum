@@ -95,6 +95,19 @@ void test_settling_filter_rejects_count_jitter_but_tracks_oscillation() {
   TEST_ASSERT_TRUE(maximum_oscillation > 0.5F);
 }
 
+void test_arm_settling_filter_rejects_single_velocity_spike() {
+  constexpr float dt_s = 0.005F;
+  constexpr float arm_settling_filter_hz = 5.0F;
+  float filtered = furuta::lowPass(0.0F, 0.0822F,
+                                   arm_settling_filter_hz, dt_s);
+  TEST_ASSERT_TRUE(std::fabs(filtered) < 0.050F);
+  for (int sample = 0; sample < 20; ++sample) {
+    filtered = furuta::lowPass(filtered, 0.10F,
+                               arm_settling_filter_hz, dt_s);
+  }
+  TEST_ASSERT_TRUE(std::fabs(filtered) > 0.050F);
+}
+
 void test_swing_preparation_requires_every_strict_settling_gate() {
   constexpr float arm_angle_tolerance = 0.020F;
   constexpr float arm_rate_tolerance = 0.050F;
@@ -242,6 +255,7 @@ int main(int, char**) {
   RUN_TEST(test_down_angle_error_handles_wrap_boundary);
   RUN_TEST(test_wrap_boundary_does_not_create_velocity_spike);
   RUN_TEST(test_settling_filter_rejects_count_jitter_but_tracks_oscillation);
+  RUN_TEST(test_arm_settling_filter_rejects_single_velocity_spike);
   RUN_TEST(test_swing_preparation_requires_every_strict_settling_gate);
   RUN_TEST(test_gain_limits_follow_the_reviewed_model_profile);
   RUN_TEST(test_swing_settings_reject_negative_non_finite_and_excessive_values);

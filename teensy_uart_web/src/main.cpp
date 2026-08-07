@@ -292,6 +292,7 @@ float arm_zero_turns = 0.0F;
 float last_pendulum_angle = -furuta::kPi;
 float pendulum_velocity = 0.0F;
 float settling_pendulum_velocity = 0.0F;
+float settling_arm_velocity = 0.0F;
 float commanded_torque_nm = 0.0F;
 uint32_t last_feedback_us = 0;
 uint32_t next_control_us = 0;
@@ -432,8 +433,12 @@ bool sampleEncoder(const float dt_s) {
   last_pendulum_angle = pendulum_angle;
   const float arm_scale =
       config::kMotorTurnsToArmRadians * config::kMotorDirection;
+  const float arm_velocity = arm_velocity_turns_s * arm_scale;
+  settling_arm_velocity = furuta::lowPass(
+      settling_arm_velocity, arm_velocity,
+      config::kSwingSettleArmVelocityFilterHz, dt_s);
   state = {(arm_position_turns - arm_zero_turns) * arm_scale, pendulum_angle,
-           arm_velocity_turns_s * arm_scale, pendulum_velocity};
+           arm_velocity, pendulum_velocity};
   return true;
 }
 
@@ -651,7 +656,7 @@ void runControlTick() {
     commanded_torque_nm = 0.0F;
     const bool settled = furuta::swingPreparationSettled(
         {state.arm_angle_rad, state.pendulum_angle_rad,
-         state.arm_velocity_rad_s, settling_pendulum_velocity},
+         settling_arm_velocity, settling_pendulum_velocity},
         config::kSwingCenterAngleToleranceRad,
         config::kSwingCenterRateToleranceRadS,
         config::kSwingSettleDownToleranceRad,
@@ -1080,6 +1085,7 @@ void zeroSystem() {
   last_pendulum_angle = -furuta::kPi;
   pendulum_velocity = 0.0F;
   settling_pendulum_velocity = 0.0F;
+  settling_arm_velocity = 0.0F;
   zero_valid = true;
   event("INFO", "ZEROED", "reference saved; pendulum must have been hanging down");
 }
@@ -1363,6 +1369,7 @@ void printTelemetry() {
   Serial.print(','); Serial.print(swing_settings.arm_centering, 4);
   Serial.print(','); Serial.print(swing_settings.startup_kick_nm, 4);
   Serial.print(','); Serial.print(swing_settings.torque_limit_nm, 4);
+  Serial.print(','); Serial.print(settling_arm_velocity, 4);
   Serial.print(','); Serial.print(settling_pendulum_velocity, 4);
   Serial.print(','); Serial.println(fault_reason[0] == '\0' ? "-" : fault_reason);
 }
@@ -1376,7 +1383,7 @@ void setup() {
   delay(20);
   requestIdle();
   next_control_us = micros() + config::kControlPeriodUs;
-  Serial.println(F("@HELLO,8,Teensy 4.1,ODrive UART,AS5048A SPI"));
+  Serial.println(F("@HELLO,9,Teensy 4.1,ODrive UART,AS5048A SPI"));
   event("INFO", "READY", "controller booted DISARMED; open the setup page");
 }
 

@@ -9,7 +9,7 @@
     tuneHoldButton: $("tuneHoldButton"), tuneHint: $("tuneHint"), swingTrialButton: $("swingTrialButton"), swingHint: $("swingHint"), armButton: $("armButton"), disarmButton: $("disarmButton"),
     gainArm: $("gainArm"), gainPendulum: $("gainPendulum"), gainArmRate: $("gainArmRate"), gainPendulumRate: $("gainPendulumRate"), gainFeedback: $("gainFeedback"),
     swingEnergyGain: $("swingEnergyGain"), swingArmDamping: $("swingArmDamping"), swingArmCentering: $("swingArmCentering"), swingStartupKick: $("swingStartupKick"), swingTorqueLimit: $("swingTorqueLimit"), applySwingButton: $("applySwingButton"), swingFeedback: $("swingFeedback"),
-    pendulumDegrees: $("pendulumDegrees"), armDegrees: $("armDegrees"), pendulumRate: $("pendulumRate"), settlingRate: $("settlingRate"), armRate: $("armRate"),
+    pendulumDegrees: $("pendulumDegrees"), armDegrees: $("armDegrees"), pendulumRate: $("pendulumRate"), settlingRate: $("settlingRate"), armRate: $("armRate"), settlingArmRate: $("settlingArmRate"),
     rawCount: $("rawCount"), agcValue: $("agcValue"), parityErrors: $("parityErrors"), protocolErrors: $("protocolErrors"), loopTiming: $("loopTiming"),
     torqueValue: $("torqueValue"), odriveErrors: $("odriveErrors"), gainSummary: $("gainSummary"),
     readinessRing: $("readinessRing"), readinessTitle: $("readinessTitle"), readinessText: $("readinessText"),
@@ -81,7 +81,7 @@
   }
 
   function parseTelemetry(parts, original) {
-    if (parts.length < 34) return;
+    if (parts.length < 35) return;
     state.sample = {
       ms: parseNumber(parts[1]), mode: parts[2], arm: parseNumber(parts[3]), pendulum: parseNumber(parts[4]),
       armRate: parseNumber(parts[5]), pendulumRate: parseNumber(parts[6]), torque: parseNumber(parts[7]),
@@ -90,7 +90,7 @@
       gains: parts.slice(16, 20).map(parseNumber), odriveErrors: parseNumber(parts[20]),
       loopUs: parseNumber(parts[21]), maximumLoopUs: parseNumber(parts[22]), setup: parts[23] === "1",
       automatic: parts[24] === "1", swingTuning: parts[25] === "1", guardedSwing: parts[26] === "1",
-      swing: parts.slice(27, 32).map(parseNumber), settlingRate: parseNumber(parts[32]), fault: parts.slice(33).join(",")
+      swing: parts.slice(27, 32).map(parseNumber), settlingArmRate: parseNumber(parts[32]), settlingRate: parseNumber(parts[33]), fault: parts.slice(34).join(",")
     };
     if (!state.swingInputsDirty) {
       [elements.swingEnergyGain, elements.swingArmDamping, elements.swingArmCentering, elements.swingStartupKick, elements.swingTorqueLimit].forEach((input, index) => {
@@ -287,6 +287,7 @@
     elements.pendulumRate.textContent = sample.pendulumRate.toFixed(2);
     elements.settlingRate.textContent = sample.settlingRate.toFixed(2);
     elements.armRate.textContent = sample.armRate.toFixed(2);
+    elements.settlingArmRate.textContent = sample.settlingArmRate.toFixed(2);
     elements.rawCount.textContent = Math.round(sample.count).toLocaleString();
     elements.agcValue.textContent = Math.round(sample.agc);
     elements.parityErrors.textContent = sample.parity;
@@ -450,7 +451,7 @@
   }
 
   function downloadCsv() {
-    const header = "record,time_ms,mode,arm_rad,pendulum_rad,arm_rate_rad_s,pendulum_rate_rad_s,torque_nm,browser_deadman_held,odrive_online,encoder_status,zero_valid,encoder_count,agc,parity_errors,protocol_errors,k_arm,k_pendulum,k_arm_rate,k_pendulum_rate,odrive_errors,loop_us,max_loop_us,mechanism_setup_complete,automatic_swing_up_enabled,swing_tuning_enabled,guarded_swing_trial,swing_energy_gain,swing_arm_damping,swing_arm_centering,swing_startup_kick_nm,swing_torque_limit_nm,settling_pendulum_rate_rad_s,fault";
+    const header = "record,time_ms,mode,arm_rad,pendulum_rad,arm_rate_rad_s,pendulum_rate_rad_s,torque_nm,browser_deadman_held,odrive_online,encoder_status,zero_valid,encoder_count,agc,parity_errors,protocol_errors,k_arm,k_pendulum,k_arm_rate,k_pendulum_rate,odrive_errors,loop_us,max_loop_us,mechanism_setup_complete,automatic_swing_up_enabled,swing_tuning_enabled,guarded_swing_trial,swing_energy_gain,swing_arm_damping,swing_arm_centering,swing_startup_kick_nm,swing_torque_limit_nm,settling_arm_rate_rad_s,settling_pendulum_rate_rad_s,fault";
     const blob = new Blob([[header, ...state.telemetryRows].join("\n")], { type: "text/csv" });
     const link = document.createElement("a"); link.href = URL.createObjectURL(blob);
     link.download = `furuta-session-${new Date().toISOString().replaceAll(":", "-")}.csv`; link.click();
@@ -462,7 +463,7 @@
     let tick = 0;
     state.demoTimer = setInterval(() => {
       tick += 1; const pendulum = -Math.PI + 0.05 * Math.sin(tick / 12), arm = 0.15 * Math.sin(tick / 30);
-      processLine(`@T,${tick * 40},TEST,${arm},${pendulum},0.02,0.08,0,1,1,OK,1,8192,118,0,0,-0.07000,1.60000,-0.06920,0.09000,0,2100,2900,1,0,1,0,0.8000,0.0300,0.0400,0.1800,0.3000,0.03,-`);
+      processLine(`@T,${tick * 40},TEST,${arm},${pendulum},0.02,0.08,0,1,1,OK,1,8192,118,0,0,-0.07000,1.60000,-0.06920,0.09000,0,2100,2900,1,0,1,0,0.8000,0.0300,0.0400,0.1800,0.3000,0.01,0.03,-`);
     }, 40);
     elements.connectButton.textContent = "Demo active"; elements.connectButton.disabled = true;
     logEvent("Demonstration mode started; no commands reach hardware.");

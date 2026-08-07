@@ -203,6 +203,10 @@ constexpr float kSwingSettlePendulumRateRadS = 0.120F;
 // estimate prevents stationary count jitter from resetting the 2.5 s settle
 // timer while still passing the measured ~1.4 Hz pendulum oscillation.
 constexpr float kSwingSettleVelocityFilterHz = 3.0F;
+// ODrive's instantaneous velocity estimate showed 0.08 rad/s spikes while
+// logged arm travel stayed within 0.00122 rad peak-to-peak. Filter only the
+// settle gate; torque control continues using the original ODrive estimate.
+constexpr float kSwingSettleArmVelocityFilterHz = 5.0F;
 constexpr uint32_t kSwingSettleHoldMs = 2500;
 constexpr uint32_t kSwingSettleTimeoutMs = 20000;
 constexpr float kCatchAngleRad = 0.14F;
@@ -272,6 +276,9 @@ static_assert(kSwingSettleHoldMs < kSwingSettleTimeoutMs,
 static_assert(kSwingSettleVelocityFilterHz > 0.0F &&
                   kSwingSettleVelocityFilterHz < kVelocityFilterHz,
               "settling velocity filter must be slower than balance feedback");
+static_assert(kSwingSettleArmVelocityFilterHz > 0.0F &&
+                  kSwingSettleArmVelocityFilterHz < kVelocityFilterHz,
+              "arm settling filter must be slower than balance feedback");
 static_assert(kSwingSettleDownToleranceRad <
                   kSwingPrepositionStartDownToleranceRad &&
                   kSwingSettlePendulumRateRadS <
