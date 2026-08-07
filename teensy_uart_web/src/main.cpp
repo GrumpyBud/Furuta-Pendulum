@@ -1363,6 +1363,7 @@ void printTelemetry() {
   Serial.print(','); Serial.print(swing_settings.arm_centering, 4);
   Serial.print(','); Serial.print(swing_settings.startup_kick_nm, 4);
   Serial.print(','); Serial.print(swing_settings.torque_limit_nm, 4);
+  Serial.print(','); Serial.print(settling_pendulum_velocity, 4);
   Serial.print(','); Serial.println(fault_reason[0] == '\0' ? "-" : fault_reason);
 }
 
@@ -1375,7 +1376,7 @@ void setup() {
   delay(20);
   requestIdle();
   next_control_us = micros() + config::kControlPeriodUs;
-  Serial.println(F("@HELLO,7,Teensy 4.1,ODrive UART,AS5048A SPI"));
+  Serial.println(F("@HELLO,8,Teensy 4.1,ODrive UART,AS5048A SPI"));
   event("INFO", "READY", "controller booted DISARMED; open the setup page");
 }
 

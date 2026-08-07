@@ -9,7 +9,7 @@
     tuneHoldButton: $("tuneHoldButton"), tuneHint: $("tuneHint"), swingTrialButton: $("swingTrialButton"), swingHint: $("swingHint"), armButton: $("armButton"), disarmButton: $("disarmButton"),
     gainArm: $("gainArm"), gainPendulum: $("gainPendulum"), gainArmRate: $("gainArmRate"), gainPendulumRate: $("gainPendulumRate"), gainFeedback: $("gainFeedback"),
     swingEnergyGain: $("swingEnergyGain"), swingArmDamping: $("swingArmDamping"), swingArmCentering: $("swingArmCentering"), swingStartupKick: $("swingStartupKick"), swingTorqueLimit: $("swingTorqueLimit"), applySwingButton: $("applySwingButton"), swingFeedback: $("swingFeedback"),
-    pendulumDegrees: $("pendulumDegrees"), armDegrees: $("armDegrees"), pendulumRate: $("pendulumRate"), armRate: $("armRate"),
+    pendulumDegrees: $("pendulumDegrees"), armDegrees: $("armDegrees"), pendulumRate: $("pendulumRate"), settlingRate: $("settlingRate"), armRate: $("armRate"),
     rawCount: $("rawCount"), agcValue: $("agcValue"), parityErrors: $("parityErrors"), protocolErrors: $("protocolErrors"), loopTiming: $("loopTiming"),
     torqueValue: $("torqueValue"), odriveErrors: $("odriveErrors"), gainSummary: $("gainSummary"),
     readinessRing: $("readinessRing"), readinessTitle: $("readinessTitle"), readinessText: $("readinessText"),
@@ -28,6 +28,7 @@
   const state = {
     port: null, reader: null, writer: null, connected: false, connecting: false, lineBuffer: "",
     sample: null, history: [], telemetryRows: [], events: [], toastTimer: null, deadmanTimer: null,
+    unwrappedPendulumDegrees: null,
     spaceHeld: false, tuneStartSentForHold: false, swingStartSentForHold: false, swingInputsDirty: false, demoTimer: null, lastMessageAt: 0
   };
 
@@ -69,18 +70,18 @@
     return Number.isFinite(parsed) ? parsed : 0;
   }
 
-  function displayedPendulumDegrees(sample) {
-    const degrees = sample.pendulum * 180 / Math.PI;
-    // At hanging-down, +180 and -180 are the same physical angle. Showing the
-    // magnitude during preparation avoids drawing a fake 360-degree jump when
-    // encoder noise crosses that representation boundary.
-    return ["CENTERING", "SETTLING"].includes(sample.mode)
-      ? Math.abs(degrees)
-      : degrees;
+  function updateUnwrappedPendulumDegrees(pendulumRadians) {
+    let degrees = pendulumRadians * 180 / Math.PI;
+    if (state.unwrappedPendulumDegrees !== null) {
+      while (degrees - state.unwrappedPendulumDegrees > 180) degrees -= 360;
+      while (degrees - state.unwrappedPendulumDegrees < -180) degrees += 360;
+    }
+    state.unwrappedPendulumDegrees = degrees;
+    return degrees;
   }
 
   function parseTelemetry(parts, original) {
-    if (parts.length < 33) return;
+    if (parts.length < 34) return;
     state.sample = {
       ms: parseNumber(parts[1]), mode: parts[2], arm: parseNumber(parts[3]), pendulum: parseNumber(parts[4]),
       armRate: parseNumber(parts[5]), pendulumRate: parseNumber(parts[6]), torque: parseNumber(parts[7]),
@@ -89,7 +90,7 @@
       gains: parts.slice(16, 20).map(parseNumber), odriveErrors: parseNumber(parts[20]),
       loopUs: parseNumber(parts[21]), maximumLoopUs: parseNumber(parts[22]), setup: parts[23] === "1",
       automatic: parts[24] === "1", swingTuning: parts[25] === "1", guardedSwing: parts[26] === "1",
-      swing: parts.slice(27, 32).map(parseNumber), fault: parts.slice(32).join(",")
+      swing: parts.slice(27, 32).map(parseNumber), settlingRate: parseNumber(parts[32]), fault: parts.slice(33).join(",")
     };
     if (!state.swingInputsDirty) {
       [elements.swingEnergyGain, elements.swingArmDamping, elements.swingArmCentering, elements.swingStartupKick, elements.swingTorqueLimit].forEach((input, index) => {
@@ -99,7 +100,8 @@
     state.lastMessageAt = Date.now();
     state.telemetryRows.push(original);
     if (state.telemetryRows.length > 15000) state.telemetryRows.shift();
-    state.history.push({ pendulum: displayedPendulumDegrees(state.sample), arm: state.sample.arm * 180 / Math.PI });
+    const unwrappedPendulumDegrees = updateUnwrappedPendulumDegrees(state.sample.pendulum);
+    state.history.push({ pendulum: unwrappedPendulumDegrees, arm: state.sample.arm * 180 / Math.PI });
     if (state.history.length > 300) state.history.shift();
     render();
     drawChart();
@@ -122,7 +124,11 @@
         state.swingInputsDirty = false;
         elements.swingFeedback.textContent = message;
       }
-      if (code === "ZEROED") toast("Reference position saved");
+      if (code === "ZEROED") {
+        state.unwrappedPendulumDegrees = null;
+        state.history = [];
+        toast("Reference position saved");
+      }
       if (code === "ODRIVE_CLEARED") toast("ODrive errors cleared");
       if (code === "ODRIVE_ERRORS_REMAIN") toast(message);
     } else if (clean.startsWith("@HELLO,")) {
@@ -187,6 +193,7 @@
     try { await state.port?.close(); } catch (_) { /* device may have vanished */ }
     state.port = null;
     state.sample = null;
+    state.unwrappedPendulumDegrees = null;
     setConnection("offline", "Not connected");
     logEvent("USB serial disconnected.", "warn");
   }
@@ -275,9 +282,10 @@
 
     if (!sample) return;
     const degrees = 180 / Math.PI;
-    elements.pendulumDegrees.textContent = displayedPendulumDegrees(sample).toFixed(1);
+    elements.pendulumDegrees.textContent = (state.unwrappedPendulumDegrees ?? sample.pendulum * degrees).toFixed(1);
     elements.armDegrees.textContent = (sample.arm * degrees).toFixed(1);
     elements.pendulumRate.textContent = sample.pendulumRate.toFixed(2);
+    elements.settlingRate.textContent = sample.settlingRate.toFixed(2);
     elements.armRate.textContent = sample.armRate.toFixed(2);
     elements.rawCount.textContent = Math.round(sample.count).toLocaleString();
     elements.agcValue.textContent = Math.round(sample.agc);
@@ -442,7 +450,7 @@
   }
 
   function downloadCsv() {
-    const header = "record,time_ms,mode,arm_rad,pendulum_rad,arm_rate_rad_s,pendulum_rate_rad_s,torque_nm,browser_deadman_held,odrive_online,encoder_status,zero_valid,encoder_count,agc,parity_errors,protocol_errors,k_arm,k_pendulum,k_arm_rate,k_pendulum_rate,odrive_errors,loop_us,max_loop_us,mechanism_setup_complete,automatic_swing_up_enabled,swing_tuning_enabled,guarded_swing_trial,swing_energy_gain,swing_arm_damping,swing_arm_centering,swing_startup_kick_nm,swing_torque_limit_nm,fault";
+    const header = "record,time_ms,mode,arm_rad,pendulum_rad,arm_rate_rad_s,pendulum_rate_rad_s,torque_nm,browser_deadman_held,odrive_online,encoder_status,zero_valid,encoder_count,agc,parity_errors,protocol_errors,k_arm,k_pendulum,k_arm_rate,k_pendulum_rate,odrive_errors,loop_us,max_loop_us,mechanism_setup_complete,automatic_swing_up_enabled,swing_tuning_enabled,guarded_swing_trial,swing_energy_gain,swing_arm_damping,swing_arm_centering,swing_startup_kick_nm,swing_torque_limit_nm,settling_pendulum_rate_rad_s,fault";
     const blob = new Blob([[header, ...state.telemetryRows].join("\n")], { type: "text/csv" });
     const link = document.createElement("a"); link.href = URL.createObjectURL(blob);
     link.download = `furuta-session-${new Date().toISOString().replaceAll(":", "-")}.csv`; link.click();
@@ -454,7 +462,7 @@
     let tick = 0;
     state.demoTimer = setInterval(() => {
       tick += 1; const pendulum = -Math.PI + 0.05 * Math.sin(tick / 12), arm = 0.15 * Math.sin(tick / 30);
-      processLine(`@T,${tick * 40},TEST,${arm},${pendulum},0.02,0.08,0,1,1,OK,1,8192,118,0,0,-0.07000,1.60000,-0.06920,0.09000,0,2100,2900,1,0,1,0,0.8000,0.0300,0.0400,0.0400,-`);
+      processLine(`@T,${tick * 40},TEST,${arm},${pendulum},0.02,0.08,0,1,1,OK,1,8192,118,0,0,-0.07000,1.60000,-0.06920,0.09000,0,2100,2900,1,0,1,0,0.8000,0.0300,0.0400,0.1800,0.3000,0.03,-`);
     }, 40);
     elements.connectButton.textContent = "Demo active"; elements.connectButton.disabled = true;
     logEvent("Demonstration mode started; no commands reach hardware.");
