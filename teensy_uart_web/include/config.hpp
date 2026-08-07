@@ -65,6 +65,14 @@ constexpr uint32_t kUartResponseTimeoutUs = 4500;
 constexpr uint32_t kUartConfigurationResponseTimeoutUs = 12000;
 constexpr uint32_t kFeedbackTimeoutUs = 15000;
 constexpr uint32_t kMaximumConsecutiveFeedbackErrors = 2;
+// CENTERING and SETTLING run on ODrive's own position loop, so they do not
+// need to crowd the UART with 200 feedback requests per second. Allow the S1
+// more response time while that loop changes modes, without weakening the
+// 200 Hz feedback requirements used by Teensy torque control.
+constexpr uint32_t kPositionFeedbackPeriodMs = 10;
+constexpr uint32_t kPositionFeedbackResponseTimeoutUs = 9000;
+constexpr uint32_t kPositionFeedbackTimeoutUs = 35000;
+constexpr uint32_t kPositionMaximumConsecutiveFeedbackErrors = 3;
 constexpr uint32_t kODriveHealthPollMs = 200;
 constexpr uint32_t kODriveHealthRetryMs = 10;
 constexpr uint32_t kMaximumConsecutiveHealthQueryErrors = 3;
@@ -265,6 +273,13 @@ static_assert(kPendulumDirection == 1.0F || kPendulumDirection == -1.0F,
               "kPendulumDirection must be exactly 1 or -1");
 static_assert(kUartResponseTimeoutUs < kControlPeriodUs,
               "UART response timeout must be shorter than the loop period");
+static_assert(kPositionFeedbackPeriodMs * 1000U <
+                  kPositionFeedbackTimeoutUs &&
+                  kPositionFeedbackResponseTimeoutUs <
+                      kPositionFeedbackTimeoutUs,
+              "position feedback timing must fit its freshness limit");
+static_assert(kPositionFeedbackTimeoutUs < 50000U,
+              "position feedback must fail before the ODrive watchdog");
 static_assert(kUartConfigurationResponseTimeoutUs < 50000U,
               "arming verification timeout must stay below the ODrive watchdog");
 

@@ -56,23 +56,43 @@ class ODriveUart {
   }
 
   bool request(const char* command, char* response, const size_t response_size,
-               const uint32_t timeout_us = config::kUartResponseTimeoutUs) {
+               const uint32_t timeout_us = config::kUartResponseTimeoutUs,
+               const bool require_feedback_shape = false) {
     drainInput();
     if (!send(command)) return false;
     size_t length = 0;
+    bool discarding_line = false;
     const uint32_t started_us = micros();
     while (micros() - started_us < timeout_us) {
       while (serial_.available() > 0) {
         const char incoming = static_cast<char>(serial_.read());
         if (incoming == '\r') continue;
         if (incoming == '\n') {
+          if (discarding_line) {
+            discarding_line = false;
+            length = 0U;
+            continue;
+          }
           if (length == 0U) continue;
           response[length] = '\0';
-          return odrive_ascii::validateAndStripChecksum(response);
+          if (odrive_ascii::validateAndStripChecksum(response) &&
+              (!require_feedback_shape ||
+               std::strchr(response, ' ') != nullptr)) {
+            return true;
+          }
+          // A reply that completed just after the preceding timeout can leave
+          // a partial line—or a valid reply of the wrong type—in the RX FIFO.
+          // Ignore it and keep looking for this request's reply.
+          length = 0U;
+          continue;
         }
+        if (discarding_line) continue;
         if (length + 1U >= response_size) {
-          drainInput();
-          return false;
+          // Resynchronize at the next newline instead of turning one noisy or
+          // stale line into consecutive transaction failures.
+          discarding_line = true;
+          length = 0U;
+          continue;
         }
         response[length++] = incoming;
       }
@@ -80,7 +100,8 @@ class ODriveUart {
     return false;
   }
 
-  bool feedback(float& position_turns, float& velocity_turns_s) {
+  bool feedback(float& position_turns, float& velocity_turns_s,
+                const uint32_t timeout_us = config::kUartResponseTimeoutUs) {
     char command[12]{};
     const int written =
         std::snprintf(command, sizeof(command), "f %u", config::kODriveAxis);
@@ -88,7 +109,7 @@ class ODriveUart {
       return false;
     }
     char response[64]{};
-    return request(command, response, sizeof(response)) &&
+    return request(command, response, sizeof(response), timeout_us, true) &&
            odrive_ascii::parseFeedback(response, position_turns,
                                        velocity_turns_s);
   }
@@ -282,6 +303,7 @@ uint32_t run_started_ms = 0;
 uint32_t swing_phase_started_ms = 0;
 uint32_t swing_settle_ready_ms = 0;
 uint32_t last_position_watchdog_feed_ms = 0;
+uint32_t last_position_feedback_poll_ms = 0;
 uint32_t browser_deadman_ms = 0;
 uint32_t last_state_sample_us = 0;
 uint32_t consecutive_encoder_errors = 0;
@@ -308,6 +330,10 @@ bool isActive() {
   return mode == Mode::kSwingCentering || mode == Mode::kSwingSettling ||
          mode == Mode::kSwingUp || mode == Mode::kBalance ||
          mode == Mode::kTuning;
+}
+
+bool odriveManagesPosition() {
+  return mode == Mode::kSwingCentering || mode == Mode::kSwingSettling;
 }
 
 bool browserDeadmanFresh(const uint32_t now_ms) {
@@ -371,8 +397,9 @@ void enterFault(
   }
 }
 
-bool readODriveFeedback() {
-  if (!odrive.feedback(arm_position_turns, arm_velocity_turns_s)) {
+bool readODriveFeedback(
+    const uint32_t timeout_us = config::kUartResponseTimeoutUs) {
+  if (!odrive.feedback(arm_position_turns, arm_velocity_turns_s, timeout_us)) {
     return false;
   }
   odrive_online = true;
@@ -415,6 +442,9 @@ const char* encoderStatus() {
 }
 
 bool stateIsHealthy(const uint32_t now_us) {
+  const uint32_t feedback_timeout_us =
+      odriveManagesPosition() ? config::kPositionFeedbackTimeoutUs
+                              : config::kFeedbackTimeoutUs;
   if (!browserDeadmanFresh(millis())) {
     enterFault("browser Space dead-man released or page lost focus");
   } else if (!encoder_healthy ||
@@ -423,7 +453,7 @@ bool stateIsHealthy(const uint32_t now_us) {
     enterFault("AS5048A encoder unhealthy",
                FaultReferencePolicy::kInvalidate);
   } else if (!odrive_online ||
-             now_us - last_feedback_us > config::kFeedbackTimeoutUs) {
+             now_us - last_feedback_us > feedback_timeout_us) {
     enterFault("ODrive UART feedback timeout",
                FaultReferencePolicy::kInvalidate);
   } else if (odrive_active_errors != 0U) {
@@ -504,19 +534,39 @@ void runControlTick() {
                  : config::kODriveInactiveHealthPollMs;
   const bool health_poll_due =
       now_ms - last_health_poll_ms >= health_interval_ms;
+  const bool position_managed = odriveManagesPosition();
+  const bool feedback_poll_due =
+      !position_managed ||
+      now_ms - last_position_feedback_poll_ms >=
+          config::kPositionFeedbackPeriodMs;
   bool feedback_missed = false;
   if (health_poll_due) {
     pollODriveHealth(now_ms);
-  } else if (isActive()) {
-    if (!readODriveFeedback()) {
+  } else if (isActive() && feedback_poll_due) {
+    if (position_managed) last_position_feedback_poll_ms = now_ms;
+    const uint32_t feedback_response_timeout_us =
+        position_managed ? config::kPositionFeedbackResponseTimeoutUs
+                         : config::kUartResponseTimeoutUs;
+    if (!readODriveFeedback(feedback_response_timeout_us)) {
       feedback_missed = true;
       ++consecutive_feedback_errors;
-      if (consecutive_feedback_errors >=
-              config::kMaximumConsecutiveFeedbackErrors ||
-          micros() - last_feedback_us > config::kFeedbackTimeoutUs) {
+      const uint32_t maximum_errors =
+          position_managed
+              ? config::kPositionMaximumConsecutiveFeedbackErrors
+              : config::kMaximumConsecutiveFeedbackErrors;
+      const uint32_t freshness_limit_us =
+          position_managed ? config::kPositionFeedbackTimeoutUs
+                           : config::kFeedbackTimeoutUs;
+      if (consecutive_feedback_errors >= maximum_errors ||
+          micros() - last_feedback_us > freshness_limit_us) {
         odrive_online = false;
-        enterFault("ODrive UART feedback failed after retry",
-                   FaultReferencePolicy::kInvalidate);
+        char message[112]{};
+        std::snprintf(
+            message, sizeof(message),
+            "ODrive UART feedback failed after %lu tries (age %lu ms)",
+            static_cast<unsigned long>(consecutive_feedback_errors),
+            static_cast<unsigned long>((micros() - last_feedback_us) / 1000U));
+        enterFault(message, FaultReferencePolicy::kInvalidate);
       }
     } else {
       consecutive_feedback_errors = 0U;
@@ -543,9 +593,12 @@ void runControlTick() {
   }
 
   // Do not calculate or refresh a motor command from a stale arm sample. The
-  // existing command remains under the 50 ms ODrive watchdog while the next
-  // 5 ms tick retries feedback.
-  if (feedback_missed || !isActive() || !stateIsHealthy(micros())) return;
+  // existing command remains under the 50 ms ODrive watchdog while a later
+  // scheduled transaction retries feedback.
+  if (feedback_missed || !isActive()) return;
+  // Position preparation uses its deliberately slower feedback freshness
+  // limit here. Teensy torque-controlled modes retain the strict 15 ms limit.
+  if (!stateIsHealthy(micros())) return;
 
   float requested_torque = 0.0F;
   if (mode == Mode::kTuning) {
@@ -973,6 +1026,8 @@ bool armODrivePosition() {
   }
   commanded_torque_nm = 0.0F;
   last_position_watchdog_feed_ms = millis();
+  last_position_feedback_poll_ms = millis();
+  consecutive_feedback_errors = 0U;
   return true;
 }
 
@@ -990,6 +1045,7 @@ void disarm(const bool acknowledge_fault) {
   swing_phase_started_ms = 0U;
   swing_settle_ready_ms = 0U;
   last_position_watchdog_feed_ms = 0U;
+  last_position_feedback_poll_ms = 0U;
   consecutive_feedback_errors = 0U;
   consecutive_health_query_errors = 0U;
   commanded_torque_nm = 0.0F;
