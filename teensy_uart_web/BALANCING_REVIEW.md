@@ -182,6 +182,18 @@ target now includes a negative reserve of `0.00060 J` per `rad/s`, capped at
 reserve fades to zero with speed instead of imposing a fixed energy target that
 could prevent entry into the catch region.
 
+That full-authority trace also exposed an encoder-estimator failure distinct
+from real speed. Consecutive telemetry around the fault reported `5.77`,
+`263.29`, then `7.21 rad/s`, while the corresponding angle advanced normally.
+The middle value is a single checksum-valid absolute-angle outlier, not
+physically possible motion. Firmware now rejects a raw angular step above
+`100 rad/s` before it can enter either low-pass filter, without advancing the
+last accepted angle or timestamp. One rejected sample skips that control
+command; three consecutive invalid samples retain the existing encoder fault
+and watchdog stop. Plausible filtered motion above the lower `50 rad/s`
+operating limit still faults immediately, and wrap-boundary behavior is covered
+by a native test.
+
 ODrive's torque-mode velocity limiter is enabled on this mechanism. Its
 available torque is reduced according to `vel_limit` and `vel_gain`, including
 at zero speed. Position preparation writes `0.5 turn/s` and `0.167 N m per
@@ -281,7 +293,7 @@ request faults immediately and invalidates zero.
 
 ## Verification performed without hardware
 
-- native tests pass for state-feedback order, angle-wrap boundaries, torque slew limiting, approach-only energy reserve, torque-mode velocity authority, predictive travel, gain-profile enforcement, dead-man timeout boundaries including timer rollover, active/inactive UART poll exclusion, AS5048A address/diagnostics/parity, the documented ODrive checksum example, checksum rejection, finite feedback parsing, and non-finite feedback rejection;
+- native tests pass for state-feedback order, angle-wrap boundaries, raw encoder-step plausibility, torque slew limiting, approach-only energy reserve, torque-mode velocity authority, predictive travel, gain-profile enforcement, dead-man timeout boundaries including timer rollover, active/inactive UART poll exclusion, AS5048A address/diagnostics/parity, the documented ODrive checksum example, checksum rejection, finite feedback parsing, and non-finite feedback rejection;
 - firmware compiles and links for Teensy 4.1 with the pinned Teensy PlatformIO platform;
 - JavaScript parses successfully in Node and the Python server byte-compiles;
 - the dashboard has a synthetic `?demo=1` stream for parser/render checks.

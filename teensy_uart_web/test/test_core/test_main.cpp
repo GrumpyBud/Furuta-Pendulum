@@ -17,6 +17,15 @@ void test_wrap_angle_range_and_boundaries() {
   TEST_ASSERT_TRUE(furuta::wrapAngle(100.0F) < furuta::kPi);
 }
 
+void test_encoder_step_plausibility_handles_wrap_and_rejects_jump() {
+  TEST_ASSERT_TRUE(furuta::angularStepPlausible(
+      3.13F, -3.13F, 0.005F, 100.0F));
+  TEST_ASSERT_FALSE(furuta::angularStepPlausible(
+      0.0F, 1.0F, 0.005F, 100.0F));
+  TEST_ASSERT_FALSE(furuta::angularStepPlausible(
+      0.0F, 0.0F, 0.0F, 100.0F));
+}
+
 void test_balance_torque_uses_documented_state_order() {
   const furuta::State state{1.0F, 2.0F, 3.0F, 4.0F};
   const furuta::Gains gains{1.0F, 10.0F, 100.0F, 1000.0F};
@@ -302,6 +311,7 @@ void test_inactive_feedback_poll_never_runs_during_active_control() {
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_wrap_angle_range_and_boundaries);
+  RUN_TEST(test_encoder_step_plausibility_handles_wrap_and_rejects_jump);
   RUN_TEST(test_balance_torque_uses_documented_state_order);
   RUN_TEST(test_slew_limit_bounds_both_directions);
   RUN_TEST(test_swing_torque_velocity_envelope_preserves_authority);

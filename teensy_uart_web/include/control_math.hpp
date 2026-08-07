@@ -19,6 +19,20 @@ inline float wrapAngle(float angle) {
   return angle - kPi;
 }
 
+inline bool angularStepPlausible(const float previous_angle_rad,
+                                 const float candidate_angle_rad,
+                                 const float elapsed_s,
+                                 const float maximum_velocity_rad_s) {
+  if (!std::isfinite(previous_angle_rad) ||
+      !std::isfinite(candidate_angle_rad) || !std::isfinite(elapsed_s) ||
+      !std::isfinite(maximum_velocity_rad_s) || elapsed_s <= 0.0F ||
+      maximum_velocity_rad_s <= 0.0F) {
+    return false;
+  }
+  return std::fabs(wrapAngle(candidate_angle_rad - previous_angle_rad)) <=
+         maximum_velocity_rad_s * elapsed_s;
+}
+
 inline float lowPass(const float previous, const float sample,
                      const float cutoff_hz, const float dt_s) {
   const float alpha = 1.0F - std::exp(-kTwoPi * cutoff_hz * dt_s);

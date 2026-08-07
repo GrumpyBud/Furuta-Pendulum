@@ -292,6 +292,8 @@ float arm_zero_turns = 0.0F;
 float last_pendulum_angle = -furuta::kPi;
 float pendulum_velocity = 0.0F;
 float settling_pendulum_velocity = 0.0F;
+uint32_t last_valid_encoder_sample_us = 0U;
+bool pendulum_rate_initialized = false;
 float settling_arm_velocity = 0.0F;
 float commanded_torque_nm = 0.0F;
 uint32_t last_feedback_us = 0;
@@ -409,28 +411,52 @@ bool readODriveFeedback(
   return true;
 }
 
-bool sampleEncoder(const float dt_s) {
+bool sampleEncoder(const float dt_s, const uint32_t sample_us) {
   uint16_t new_count = 0;
   if (!encoder.readAngle(new_count)) {
     ++consecutive_encoder_errors;
     return false;
   }
-  consecutive_encoder_errors = 0;
-  pendulum_count = new_count;
-  const int32_t delta_count = static_cast<int32_t>(pendulum_count) -
+  const int32_t delta_count = static_cast<int32_t>(new_count) -
                               static_cast<int32_t>(pendulum_down_count);
   const float count_to_rad = config::kPendulumDirection * furuta::kTwoPi /
                              as5048a::kCountsPerRevolution;
   const float pendulum_angle =
       furuta::wrapAngle(delta_count * count_to_rad - furuta::kPi);
+
+  float encoder_dt_s = dt_s;
+  if (last_valid_encoder_sample_us != 0U) {
+    encoder_dt_s = furuta::clamp(
+        (sample_us - last_valid_encoder_sample_us) * 1.0e-6F,
+        0.001F, 0.100F);
+  }
+  if (pendulum_rate_initialized &&
+      !furuta::angularStepPlausible(
+          last_pendulum_angle, pendulum_angle, encoder_dt_s,
+          config::kPendulumRawVelocityPlausibilityRadS)) {
+    // Do not advance the accepted angle or timestamp. The next valid sample
+    // will calculate velocity across the complete elapsed interval instead of
+    // treating recovery from this outlier as a second enormous velocity spike.
+    ++consecutive_encoder_errors;
+    return false;
+  }
+
   const float raw_velocity =
-      furuta::wrapAngle(pendulum_angle - last_pendulum_angle) / dt_s;
+      pendulum_rate_initialized
+          ? furuta::wrapAngle(pendulum_angle - last_pendulum_angle) /
+                encoder_dt_s
+          : 0.0F;
+  consecutive_encoder_errors = 0;
+  pendulum_count = new_count;
   pendulum_velocity = furuta::lowPass(
-      pendulum_velocity, raw_velocity, config::kVelocityFilterHz, dt_s);
+      pendulum_velocity, raw_velocity, config::kVelocityFilterHz,
+      encoder_dt_s);
   settling_pendulum_velocity = furuta::lowPass(
       settling_pendulum_velocity, raw_velocity,
-      config::kSwingSettleVelocityFilterHz, dt_s);
+      config::kSwingSettleVelocityFilterHz, encoder_dt_s);
   last_pendulum_angle = pendulum_angle;
+  last_valid_encoder_sample_us = sample_us;
+  pendulum_rate_initialized = true;
   const float arm_scale =
       config::kMotorTurnsToArmRadians * config::kMotorDirection;
   const float arm_velocity = arm_velocity_turns_s * arm_scale;
@@ -601,7 +627,7 @@ void runControlTick() {
                          0.001F, 0.025F);
   }
   last_state_sample_us = sample_us;
-  if (!sampleEncoder(dt_s)) {
+  if (!sampleEncoder(dt_s, sample_us)) {
     if (isActive() && consecutive_encoder_errors >=
                           config::kMaximumConsecutiveEncoderErrors) {
       enterFault("AS5048A repeated read errors",
@@ -1203,6 +1229,8 @@ void zeroSystem() {
   last_pendulum_angle = -furuta::kPi;
   pendulum_velocity = 0.0F;
   settling_pendulum_velocity = 0.0F;
+  last_valid_encoder_sample_us = micros();
+  pendulum_rate_initialized = true;
   settling_arm_velocity = 0.0F;
   zero_valid = true;
   event("INFO", "ZEROED", "reference saved; pendulum must have been hanging down");
