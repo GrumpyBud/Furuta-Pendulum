@@ -277,6 +277,7 @@ uint32_t last_position_command_ms = 0;
 uint32_t browser_deadman_ms = 0;
 uint32_t last_state_sample_us = 0;
 uint32_t consecutive_encoder_errors = 0;
+uint32_t consecutive_health_query_errors = 0;
 uint32_t consecutive_deadline_misses = 0;
 uint32_t last_tick_duration_us = 0;
 uint32_t maximum_tick_duration_us = 0;
@@ -458,13 +459,28 @@ void pollODriveHealth(const uint32_t now_ms) {
   last_health_poll_ms = now_ms;
   uint32_t errors = 0;
   if (!odrive.readUnsigned("axis0.active_errors", errors)) {
-    odrive_online = false;
     if (isActive()) {
-      enterFault("ODrive health query failed",
-                 FaultReferencePolicy::kInvalidate);
+      ++consecutive_health_query_errors;
+      if (consecutive_health_query_errors >=
+          config::kMaximumConsecutiveHealthQueryErrors) {
+        // Successful cyclic feedback between these property-query attempts
+        // proves that the position reference still exists. Stop motion, but
+        // preserve zero; a real feedback loss has its own immediate fault.
+        enterFault("ODrive health query failed after rapid retries");
+      } else {
+        // Pull the next health poll forward without blocking normal feedback
+        // on the intervening 5 ms control tick.
+        last_health_poll_ms =
+            now_ms - config::kODriveHealthPollMs +
+            config::kODriveHealthRetryMs;
+      }
+    } else {
+      odrive_online = false;
+      consecutive_health_query_errors = 0U;
     }
     return;
   }
+  consecutive_health_query_errors = 0U;
   odrive_active_errors = errors;
   odrive_online = true;
 }
@@ -528,7 +544,7 @@ void runControlTick() {
       enterFault("automatic arm centering time limit reached");
       return;
     }
-    if (!commandODriveCenter(now_ms)) {
+    if (!health_poll_due && !commandODriveCenter(now_ms)) {
       enterFault("ODrive filtered-position command failed",
                  FaultReferencePolicy::kInvalidate);
       return;
@@ -549,7 +565,7 @@ void runControlTick() {
       enterFault("pendulum settling time limit reached");
       return;
     }
-    if (!commandODriveCenter(now_ms)) {
+    if (!health_poll_due && !commandODriveCenter(now_ms)) {
       enterFault("ODrive position-hold command failed",
                  FaultReferencePolicy::kInvalidate);
       return;
@@ -954,6 +970,7 @@ void disarm(const bool acknowledge_fault) {
   swing_phase_started_ms = 0U;
   swing_settle_ready_ms = 0U;
   last_position_command_ms = 0U;
+  consecutive_health_query_errors = 0U;
   commanded_torque_nm = 0.0F;
   if (acknowledge_fault) fault_reason[0] = '\0';
   event("INFO", "DISARMED", "motor requested idle");

@@ -177,6 +177,9 @@ ODrive UART ASCII is request/response rather than cyclic. At 115200 baud, a 200 
 - accepts no feedback after the response deadline;
 - normally requests arm position/rate every 5 ms;
 - periodically replaces one feedback request with an active-error query;
+- never sends a filtered-position command on that same health-query tick,
+  retries an isolated missed property response after 10 ms, and requires three
+  consecutive property-query misses before stopping;
 - faults feedback older than 15 ms;
 - derives pendulum velocity from the actual elapsed encoder sample time rather than blindly assuming 5 ms;
 - records current and worst control-work time in every telemetry row;
@@ -217,8 +220,12 @@ Active control faults on:
 Boot requests zero torque/idle and starts disarmed. Recoverable motion-envelope,
 catch-region, timeout, deadline, and dead-man faults preserve the saved zero
 because neither absolute encoder reference changed. Encoder corruption,
-non-finite sensor data, an ODrive active error, or lost ODrive feedback
-invalidate zero so a potentially stale reference cannot be reused.
+non-finite sensor data, an ODrive active error, or lost ODrive cyclic feedback
+invalidate zero so a potentially stale reference cannot be reused. A missed
+health-property query alone does not prove reference loss: cyclic feedback is
+required between rapid retries, and even three property-only misses stop motion
+while preserving zero. If the link itself is gone, the next 5 ms feedback
+request faults immediately and invalidates zero.
 
 ## Verification performed without hardware
 

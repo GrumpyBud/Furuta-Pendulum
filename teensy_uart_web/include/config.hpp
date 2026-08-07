@@ -65,6 +65,8 @@ constexpr uint32_t kUartResponseTimeoutUs = 4500;
 constexpr uint32_t kUartConfigurationResponseTimeoutUs = 12000;
 constexpr uint32_t kFeedbackTimeoutUs = 15000;
 constexpr uint32_t kODriveHealthPollMs = 200;
+constexpr uint32_t kODriveHealthRetryMs = 10;
+constexpr uint32_t kMaximumConsecutiveHealthQueryErrors = 3;
 constexpr uint32_t kODriveInactiveHealthPollMs = 500;
 constexpr uint32_t kTelemetryPeriodMs = 40;        // 25 Hz normally
 constexpr uint32_t kTuningTelemetryPeriodMs = 10;  // 100 Hz during gain trials
@@ -243,6 +245,9 @@ static_assert(kSwingCenterVelocityLimitTurnsS * furuta::kTwoPi <
               "automatic centering speed must remain below arm overspeed");
 static_assert(kSwingCenterCommandPeriodMs < 50U,
               "position commands must feed the 50 ms ODrive watchdog");
+static_assert(kODriveHealthRetryMs < kODriveHealthPollMs &&
+                  kMaximumConsecutiveHealthQueryErrors > 1U,
+              "ODrive health queries must retry quickly before faulting");
 static_assert(kSwingCenterInputFilterBandwidth > 0.0F &&
                   kSwingCenterPositionGain > 0.0F &&
                   kSwingCenterVelocityGain > 0.0F &&
