@@ -26,6 +26,20 @@ void test_encoder_step_plausibility_handles_wrap_and_rejects_jump() {
       0.0F, 0.0F, 0.0F, 100.0F));
 }
 
+void test_pendulum_raw_velocity_envelope_allows_bottom_speed() {
+  TEST_ASSERT_FLOAT_WITHIN(
+      1.0e-5F, 100.0F,
+      furuta::pendulumRawVelocityEnvelope(0.0F, 100.0F, 400.0F));
+  TEST_ASSERT_FLOAT_WITHIN(
+      1.0e-4F, 250.0F,
+      furuta::pendulumRawVelocityEnvelope(
+          0.5F * furuta::kPi, 100.0F, 400.0F));
+  TEST_ASSERT_FLOAT_WITHIN(
+      1.0e-5F, 400.0F,
+      furuta::pendulumRawVelocityEnvelope(
+          -furuta::kPi, 100.0F, 400.0F));
+}
+
 void test_balance_torque_uses_documented_state_order() {
   const furuta::State state{1.0F, 2.0F, 3.0F, 4.0F};
   const furuta::Gains gains{1.0F, 10.0F, 100.0F, 1000.0F};
@@ -312,6 +326,7 @@ int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_wrap_angle_range_and_boundaries);
   RUN_TEST(test_encoder_step_plausibility_handles_wrap_and_rejects_jump);
+  RUN_TEST(test_pendulum_raw_velocity_envelope_allows_bottom_speed);
   RUN_TEST(test_balance_torque_uses_documented_state_order);
   RUN_TEST(test_slew_limit_bounds_both_directions);
   RUN_TEST(test_swing_torque_velocity_envelope_preserves_authority);

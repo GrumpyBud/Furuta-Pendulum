@@ -33,6 +33,15 @@ inline bool angularStepPlausible(const float previous_angle_rad,
          maximum_velocity_rad_s * elapsed_s;
 }
 
+inline float pendulumRawVelocityEnvelope(
+    const float angle_rad, const float upright_limit_rad_s,
+    const float hanging_limit_rad_s) {
+  const float down_fraction =
+      0.5F * (1.0F - std::cos(wrapAngle(angle_rad)));
+  return upright_limit_rad_s +
+         (hanging_limit_rad_s - upright_limit_rad_s) * down_fraction;
+}
+
 inline float lowPass(const float previous, const float sample,
                      const float cutoff_hz, const float dt_s) {
   const float alpha = 1.0F - std::exp(-kTwoPi * cutoff_hz * dt_s);

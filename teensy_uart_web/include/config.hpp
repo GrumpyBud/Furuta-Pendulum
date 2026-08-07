@@ -113,10 +113,12 @@ constexpr float kArmTravelPredictionSeconds = 0.080F;
 constexpr float kArmVelocityLimitRadS =
     kODriveConfiguredVelocityLimitTurnsPerSecond * furuta::kTwoPi;
 constexpr float kPendulumVelocityLimitRadS = 50.0F;
-// Reject a checksum-valid but physically impossible absolute-angle jump before
-// it contaminates the velocity filters. Genuine motion above the lower 50
-// rad/s operating limit still faults immediately through stateIsHealthy().
-constexpr float kPendulumRawVelocityPlausibilityRadS = 100.0F;
+// A Furuta pendulum is fastest near hanging and must slow near upright. Reject
+// only steps outside this angle-dependent raw envelope before they contaminate
+// the velocity filters; the lower filtered operating limit remains separate.
+constexpr float kPendulumRawVelocityUprightLimitRadS = 100.0F;
+constexpr float kPendulumRawVelocityHangingLimitRadS = 400.0F;
+constexpr uint32_t kMaximumConsecutivePendulumStepOutliers = 2U;
 constexpr float kZeroMaximumArmRateRadS = 0.20F;
 constexpr float kZeroMaximumPendulumRateRadS = 0.35F;
 constexpr uint32_t kMaximumConsecutiveEncoderErrors = 3;
@@ -257,9 +259,14 @@ constexpr furuta::Gains kGainAbsoluteLimits{0.16F, 2.50F, 0.13F, 0.25F};
 
 static_assert(kMotorDirection == 1.0F || kMotorDirection == -1.0F,
               "kMotorDirection must be exactly 1 or -1");
-static_assert(kPendulumRawVelocityPlausibilityRadS >
+static_assert(kPendulumRawVelocityUprightLimitRadS >
                   kPendulumVelocityLimitRadS,
-              "raw encoder plausibility bound must exceed operating limit");
+              "raw upright bound must exceed filtered operating limit");
+static_assert(kPendulumRawVelocityHangingLimitRadS >
+                  kPendulumRawVelocityUprightLimitRadS,
+              "raw hanging bound must allow required swing kinetic energy");
+static_assert(kMaximumConsecutivePendulumStepOutliers > 1U,
+              "one angle outlier must be tolerated");
 static_assert(kMotorRevolutionsPerArmRevolution > 0.0F,
               "motor-to-arm ratio must be positive");
 static_assert(kArmAngleLimitRad < furuta::kPi,

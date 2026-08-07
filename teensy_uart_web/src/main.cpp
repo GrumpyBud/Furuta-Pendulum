@@ -294,6 +294,8 @@ float pendulum_velocity = 0.0F;
 float settling_pendulum_velocity = 0.0F;
 uint32_t last_valid_encoder_sample_us = 0U;
 bool pendulum_rate_initialized = false;
+uint32_t consecutive_pendulum_step_outliers = 0U;
+bool raw_pendulum_overspeed = false;
 float settling_arm_velocity = 0.0F;
 float commanded_torque_nm = 0.0F;
 uint32_t last_feedback_us = 0;
@@ -414,6 +416,8 @@ bool readODriveFeedback(
 bool sampleEncoder(const float dt_s, const uint32_t sample_us) {
   uint16_t new_count = 0;
   if (!encoder.readAngle(new_count)) {
+    consecutive_pendulum_step_outliers = 0U;
+    raw_pendulum_overspeed = false;
     ++consecutive_encoder_errors;
     return false;
   }
@@ -433,11 +437,21 @@ bool sampleEncoder(const float dt_s, const uint32_t sample_us) {
   if (pendulum_rate_initialized &&
       !furuta::angularStepPlausible(
           last_pendulum_angle, pendulum_angle, encoder_dt_s,
-          config::kPendulumRawVelocityPlausibilityRadS)) {
+          furuta::pendulumRawVelocityEnvelope(
+              pendulum_angle,
+              config::kPendulumRawVelocityUprightLimitRadS,
+              config::kPendulumRawVelocityHangingLimitRadS))) {
     // Do not advance the accepted angle or timestamp. The next valid sample
     // will calculate velocity across the complete elapsed interval instead of
     // treating recovery from this outlier as a second enormous velocity spike.
-    ++consecutive_encoder_errors;
+    // This is not an SPI/parity read failure. Ignore one isolated outlier, but
+    // classify sustained physically excessive motion as overspeed so it does
+    // not masquerade as encoder loss or unnecessarily invalidate saved zero.
+    consecutive_encoder_errors = 0U;
+    ++consecutive_pendulum_step_outliers;
+    raw_pendulum_overspeed =
+        consecutive_pendulum_step_outliers >=
+        config::kMaximumConsecutivePendulumStepOutliers;
     return false;
   }
 
@@ -447,6 +461,8 @@ bool sampleEncoder(const float dt_s, const uint32_t sample_us) {
                 encoder_dt_s
           : 0.0F;
   consecutive_encoder_errors = 0;
+  consecutive_pendulum_step_outliers = 0U;
+  raw_pendulum_overspeed = false;
   pendulum_count = new_count;
   pendulum_velocity = furuta::lowPass(
       pendulum_velocity, raw_velocity, config::kVelocityFilterHz,
@@ -628,7 +644,9 @@ void runControlTick() {
   }
   last_state_sample_us = sample_us;
   if (!sampleEncoder(dt_s, sample_us)) {
-    if (isActive() && consecutive_encoder_errors >=
+    if (isActive() && raw_pendulum_overspeed) {
+      enterFault("pendulum overspeed");
+    } else if (isActive() && consecutive_encoder_errors >=
                           config::kMaximumConsecutiveEncoderErrors) {
       enterFault("AS5048A repeated read errors",
                  FaultReferencePolicy::kInvalidate);
@@ -1231,6 +1249,8 @@ void zeroSystem() {
   settling_pendulum_velocity = 0.0F;
   last_valid_encoder_sample_us = micros();
   pendulum_rate_initialized = true;
+  consecutive_pendulum_step_outliers = 0U;
+  raw_pendulum_overspeed = false;
   settling_arm_velocity = 0.0F;
   zero_valid = true;
   event("INFO", "ZEROED", "reference saved; pendulum must have been hanging down");

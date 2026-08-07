@@ -186,13 +186,19 @@ That full-authority trace also exposed an encoder-estimator failure distinct
 from real speed. Consecutive telemetry around the fault reported `5.77`,
 `263.29`, then `7.21 rad/s`, while the corresponding angle advanced normally.
 The middle value is a single checksum-valid absolute-angle outlier, not
-physically possible motion. Firmware now rejects a raw angular step above
-`100 rad/s` before it can enter either low-pass filter, without advancing the
-last accepted angle or timestamp. One rejected sample skips that control
-command; three consecutive invalid samples retain the existing encoder fault
-and watchdog stop. Plausible filtered motion above the lower `50 rad/s`
-operating limit still faults immediately, and wrap-boundary behavior is covered
-by a native test.
+physically possible motion. A fixed raw-rate threshold is inappropriate for
+swing-up because the pendulum must be fastest at the bottom: the measured
+`m`, `l`, and `J` imply about `17.1 rad/s` at hanging for exactly upright
+energy. Firmware therefore uses an angle-dependent raw envelope, interpolating
+from `400 rad/s` at hanging through `250 rad/s` at horizontal to `100 rad/s`
+at upright. A rejected step cannot enter either low-pass filter or advance the
+last accepted angle/timestamp. One rejected sample skips that control command.
+This plausibility rejection is deliberately separate from SPI/parity read
+errors: a second consecutive excessive step stops as `pendulum overspeed`
+while preserving zero, whereas three real encoder read failures retain the
+encoder fault and reference invalidation. Plausible filtered motion above the
+lower `50 rad/s` operating limit still faults immediately, and wrap-boundary
+behavior is covered by native tests.
 
 ODrive's torque-mode velocity limiter is enabled on this mechanism. Its
 available torque is reduced according to `vel_limit` and `vel_gain`, including
