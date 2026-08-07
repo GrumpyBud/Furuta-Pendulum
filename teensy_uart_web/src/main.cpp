@@ -935,6 +935,14 @@ bool armODrivePosition() {
   if (!odrive.clearErrors()) {
     return fail("ODrive UART failed while clearing errors before centering");
   }
+  // The swing command ceiling is meaningful only if the ODrive's own motor
+  // current clamp permits it. Apply this for the current powered session (do
+  // not save to ODrive flash), then verify both configured and effective
+  // limits before any swing motion is allowed.
+  if (!odrive.writeFloatProperty("axis0.config.motor.current_soft_max",
+                                 config::kODriveConfiguredCurrentSoftMaxAmp)) {
+    return fail("ODrive rejected the 15 A swing current soft limit");
+  }
   if (!odrive.writeProperty("axis0.config.watchdog_timeout",
                             config::kODriveWatchdogSeconds)) {
     return fail("ODrive rejected the watchdog timeout");
@@ -979,6 +987,9 @@ bool armODrivePosition() {
   float position_gain = 0.0F;
   float velocity_gain = 0.0F;
   float velocity_integrator_gain = 0.0F;
+  float current_soft_limit = 0.0F;
+  float current_hard_limit = 0.0F;
+  float effective_current_limit = 0.0F;
   const uint32_t timeout = config::kUartConfigurationResponseTimeoutUs;
   if (!odrive.readUnsigned("axis0.controller.config.control_mode",
                            control_mode, timeout) ||
@@ -997,22 +1008,53 @@ bool armODrivePosition() {
       !odrive.readFloat("axis0.controller.config.vel_gain", velocity_gain,
                         timeout) ||
       !odrive.readFloat("axis0.controller.config.vel_integrator_gain",
-                        velocity_integrator_gain, timeout)) {
+                        velocity_integrator_gain, timeout) ||
+      !odrive.readFloat("axis0.config.motor.current_soft_max",
+                        current_soft_limit, timeout) ||
+      !odrive.readFloat("axis0.config.motor.current_hard_max",
+                        current_hard_limit, timeout) ||
+      !odrive.readFloat("axis0.motor.effective_current_lim",
+                        effective_current_limit, timeout)) {
     return fail("ODrive did not verify filtered-position configuration");
   }
   odrive_active_errors = active_errors;
-  if (active_errors != 0U || current_state != 8U || control_mode != 3U ||
-      input_mode != 3U || velocity_limit_enabled != 1U ||
-      !nearlyEqual(filter_bandwidth,
-                   config::kSwingCenterInputFilterBandwidth) ||
-      !nearlyEqual(velocity_limit,
-                   config::kSwingCenterVelocityLimitTurnsS) ||
-      !nearlyEqual(position_gain, config::kSwingCenterPositionGain) ||
-      !nearlyEqual(velocity_gain, config::kSwingCenterVelocityGain) ||
-      !nearlyEqual(velocity_integrator_gain,
-                   config::kSwingCenterVelocityIntegratorGain)) {
+  const float required_swing_current =
+      config::kSwingSettingLimits.torque_limit_nm /
+      config::kMotorTorqueConstantNmPerAmp;
+  const bool position_configuration_matches =
+      active_errors == 0U && current_state == 8U && control_mode == 3U &&
+      input_mode == 3U && velocity_limit_enabled == 1U &&
+      nearlyEqual(filter_bandwidth,
+                  config::kSwingCenterInputFilterBandwidth) &&
+      nearlyEqual(velocity_limit,
+                  config::kSwingCenterVelocityLimitTurnsS) &&
+      nearlyEqual(position_gain, config::kSwingCenterPositionGain) &&
+      nearlyEqual(velocity_gain, config::kSwingCenterVelocityGain) &&
+      nearlyEqual(velocity_integrator_gain,
+                  config::kSwingCenterVelocityIntegratorGain);
+  if (!position_configuration_matches) {
     return fail("ODrive filtered-position readback mismatch");
   }
+  if (current_soft_limit + 0.05F <
+          config::kODriveConfiguredCurrentSoftMaxAmp ||
+      current_hard_limit <= current_soft_limit ||
+      effective_current_limit + 0.05F < required_swing_current) {
+    std::snprintf(
+        odrive_arm_failure, sizeof(odrive_arm_failure),
+        "ODrive current ceiling low: soft %.1f, hard %.1f, effective %.1f A",
+        static_cast<double>(current_soft_limit),
+        static_cast<double>(current_hard_limit),
+        static_cast<double>(effective_current_limit));
+    requestIdle();
+    return false;
+  }
+
+  char current_message[96]{};
+  std::snprintf(current_message, sizeof(current_message),
+                "swing current verified: soft %.1f A, effective %.1f A",
+                static_cast<double>(current_soft_limit),
+                static_cast<double>(effective_current_limit));
+  event("INFO", "ODRIVE_CURRENT", current_message);
 
   if (!odrive.writeProperty("axis0.config.enable_watchdog", "1") ||
       !odrive.setPosition(arm_zero_turns,

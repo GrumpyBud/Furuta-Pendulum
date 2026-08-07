@@ -175,7 +175,7 @@ constexpr bool kAutomaticSwingUpEnabled = false;
 // dead-man, automatic speed-limited preparation, and a 20 s energy timeout.
 constexpr bool kSwingTuningEnabled = true;
 constexpr furuta::SwingSettings kDefaultSwingSettings{
-    0.80F, 0.030F, 0.040F, 0.180F, 0.450F};
+    0.80F, 0.010F, 0.040F, 0.180F, 0.450F};
 constexpr furuta::SwingSettings kSwingSettingLimits{
     20.00F, 1.000F, 1.000F, 0.300F, 0.450F};
 constexpr uint32_t kSwingStartupKickPhaseMs = 180;
