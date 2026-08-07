@@ -102,6 +102,10 @@ constexpr float kSwingTuningTorqueLimitNm =
 constexpr float kTuningTorqueLimitNm =
     kTuningPhaseCurrentLimitAmp * kMotorTorqueConstantNmPerAmp;
 constexpr float kTorqueSlewNmPerSecond = 8.0F;
+// Full-authority hardware logs reached upright in 1.87 s. Swing-up needs a
+// faster reversal to remove energy between the horizontal crossing and catch;
+// the proven upright balance controller retains the original gentler limit.
+constexpr float kSwingTorqueSlewNmPerSecond = 30.0F;
 constexpr float kArmAngleLimitRad = 2.4F;
 // Fault early enough to leave coasting distance before the 2.4 rad soft limit.
 // This is still not a substitute for physical stops at or before +/- pi.
@@ -175,7 +179,7 @@ constexpr bool kAutomaticSwingUpEnabled = false;
 // dead-man, automatic speed-limited preparation, and a 20 s energy timeout.
 constexpr bool kSwingTuningEnabled = true;
 constexpr furuta::SwingSettings kDefaultSwingSettings{
-    2.00F, 0.030F, 0.180F, 0.220F, 0.450F};
+    1.00F, 0.030F, 0.180F, 0.160F, 0.450F};
 constexpr furuta::SwingSettings kSwingSettingLimits{
     20.00F, 1.000F, 1.000F, 0.300F, 0.450F};
 // Position preparation temporarily uses 0.5 turn/s and vel_gain 0.167. Before
@@ -192,6 +196,11 @@ constexpr uint32_t kSwingStartupKickPhaseMs = 180;
 // pumping and the user-configured centering/damping terms remain available.
 constexpr float kSwingTravelGuardStartRad = 0.65F;
 constexpr float kSwingTravelGuardFullRad = 1.10F;
+// While moving toward upright, request a small negative energy reserve that is
+// proportional to speed. This starts braking early when fast but fades toward
+// zero as the pendulum enters the catchable region.
+constexpr float kSwingApproachReserveJPerRadS = 0.00060F;
+constexpr float kSwingMaximumApproachReserveJ = 0.015F;
 // A guarded run may begin away from center. ODrive's filtered position mode
 // moves the arm to its saved zero with the hardware-tested gains below, then
 // continues holding that exact target until the mechanism is quiet.
@@ -282,6 +291,8 @@ static_assert(kSwingTravelGuardStartRad > 0.0F &&
                   kSwingTravelGuardFullRad > kSwingTravelGuardStartRad &&
                   kSwingTravelGuardFullRad < kArmAngleLimitRad,
               "swing travel guard must stay inside the arm travel limit");
+static_assert(kSwingTorqueSlewNmPerSecond > kTorqueSlewNmPerSecond,
+              "swing braking must reverse faster than balance torque");
 static_assert(kSwingCenterVelocityLimitTurnsS * furuta::kTwoPi <
                   kArmVelocityLimitRadS,
               "automatic centering speed must remain below arm overspeed");

@@ -194,6 +194,21 @@ void test_swing_energy_law_pumps_in_the_direction_of_motion() {
                             0.159F, 0.05379F, 0.001141F, 0.8F, 0.0F));
 }
 
+void test_swing_approach_energy_reserve_brakes_only_toward_upright() {
+  TEST_ASSERT_FLOAT_WITHIN(
+      1.0e-6F, -0.006F,
+      furuta::swingApproachEnergyTarget(
+          {-0.2F, -0.6F, 0.0F, 10.0F}, 0.0006F, 0.015F));
+  TEST_ASSERT_FLOAT_WITHIN(
+      1.0e-6F, 0.0F,
+      furuta::swingApproachEnergyTarget(
+          {-0.2F, -0.6F, 0.0F, -10.0F}, 0.0006F, 0.015F));
+  TEST_ASSERT_FLOAT_WITHIN(
+      1.0e-6F, -0.015F,
+      furuta::swingApproachEnergyTarget(
+          {0.0F, 0.6F, 0.0F, -40.0F}, 0.0006F, 0.015F));
+}
+
 void test_swing_travel_guard_blocks_only_outward_energy_torque() {
   TEST_ASSERT_FLOAT_WITHIN(
       1.0e-6F, 1.0F, furuta::outwardSwingScale(-1.1F, 0.4F, 0.65F, 1.1F));
@@ -300,6 +315,7 @@ int main(int, char**) {
   RUN_TEST(test_gain_limits_follow_the_reviewed_model_profile);
   RUN_TEST(test_swing_settings_reject_negative_non_finite_and_excessive_values);
   RUN_TEST(test_swing_energy_law_pumps_in_the_direction_of_motion);
+  RUN_TEST(test_swing_approach_energy_reserve_brakes_only_toward_upright);
   RUN_TEST(test_swing_travel_guard_blocks_only_outward_energy_torque);
   RUN_TEST(test_travel_aware_swing_retains_centering_at_guard);
   RUN_TEST(test_as5048a_command_and_response_parity);

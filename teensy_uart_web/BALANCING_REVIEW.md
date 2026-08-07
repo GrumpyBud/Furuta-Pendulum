@@ -167,10 +167,20 @@ approach regressed to `2.047 rad` (`117.3 degrees`) and the arm still reached
 fault described below; the replay had modeled requested rather than ODrive-
 limited torque and therefore could not validate the changed closed loop.
 
-The hardware-informed default is now `k_E = 2.0`, `k_d = 0.030`, and
-`k_c = 0.180`, with a `0.220 N m` startup nudge and the unchanged `0.450 N m`
-ceiling. The travel guard begins far inside both the `2.4 rad` predictive
-software stop and the requested `+/-pi` mechanical envelope.
+Once the torque-mode velocity envelope was corrected, the first full-authority
+trial reached `0.0195 rad` (`1.12 degrees`) from upright in `1.87 s`, but crossed
+at `5.55 rad/s`; the `1.5 rad/s` catch gate correctly refused the handoff. The
+logged energy was already `+0.0175 J` above the upright target. The revised
+default is therefore `k_E = 1.0`, `k_d = 0.030`, and `k_c = 0.180`, with a
+`0.160 N m` startup nudge and the unchanged `0.450 N m` ceiling. The travel
+guard begins far inside both the `2.4 rad` predictive software stop and the
+requested `+/-pi` mechanical envelope.
+
+While the pendulum is above horizontal and moving toward upright, its energy
+target now includes a negative reserve of `0.00060 J` per `rad/s`, capped at
+`0.015 J`. This commands earlier braking when approach speed is high, but the
+reserve fades to zero with speed instead of imposing a fixed energy target that
+could prevent entry into the catch region.
 
 ODrive's torque-mode velocity limiter is enabled on this mechanism. Its
 available torque is reduced according to `vel_limit` and `vel_gain`, including
@@ -195,7 +205,7 @@ The guarded request still has a broad pre-arm envelope: the stopped arm must be 
 
 `SWING_UP` changes to `BALANCE` only when both the absolute upright angle and pendulum speed are inside the catch limits. `BALANCE` returns to `SWING_UP` at a wider angle, giving hysteresis and avoiding rapid mode chatter.
 
-Every controller path reaches a final torque clamp and slew limiter. Tuning has a lower clamp. Saturation means the linear closed-loop poles alone are not enough to prove stability; nonlinear simulation and logged hardware trials must include the same clamps, slew rate, ODrive torque accuracy, and bus/current limiting. The 2026-08-07 trace also showed that the old request and the transmitted slew-limited torque differed by only `0.004 N m` on average, ruling out the common slew limiter as the dominant cause of that specific plateau; it therefore remains unchanged for both swing and balance.
+Every controller path reaches a final torque clamp and slew limiter. Tuning has a lower clamp. Saturation means the linear closed-loop poles alone are not enough to prove stability; nonlinear simulation and logged hardware trials must include the same clamps, slew rate, ODrive torque accuracy, and bus/current limiting. In the earlier actuator-limited trace, requested and slew-limited torque differed by only `0.004 N m` on average, so slew was not the cause of that plateau. After actual torque authority was restored, the pendulum traversed horizontal-to-upright in about `160 ms`; the shared `8 N m/s` limit required about `113 ms` for a complete `+0.45` to `-0.45 N m` braking reversal. Swing-up now uses `30 N m/s`, while tuning and balance retain the hardware-proven `8 N m/s` limit.
 
 After the `18 A` ODrive hard limit was reported, the old `0.75 N m` firmware
 clamp was found to correspond to `24.49 A` at the measured torque constant. The
@@ -271,7 +281,7 @@ request faults immediately and invalidates zero.
 
 ## Verification performed without hardware
 
-- native tests pass for state-feedback order, angle-wrap boundaries, torque slew limiting, predictive travel, gain-profile enforcement, dead-man timeout boundaries including timer rollover, active/inactive UART poll exclusion, AS5048A address/diagnostics/parity, the documented ODrive checksum example, checksum rejection, finite feedback parsing, and non-finite feedback rejection;
+- native tests pass for state-feedback order, angle-wrap boundaries, torque slew limiting, approach-only energy reserve, torque-mode velocity authority, predictive travel, gain-profile enforcement, dead-man timeout boundaries including timer rollover, active/inactive UART poll exclusion, AS5048A address/diagnostics/parity, the documented ODrive checksum example, checksum rejection, finite feedback parsing, and non-finite feedback rejection;
 - firmware compiles and links for Teensy 4.1 with the pinned Teensy PlatformIO platform;
 - JavaScript parses successfully in Node and the Python server byte-compiles;
 - the dashboard has a synthetic `?demo=1` stream for parser/render checks.

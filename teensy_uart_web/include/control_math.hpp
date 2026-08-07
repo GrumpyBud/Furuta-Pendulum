@@ -164,16 +164,30 @@ inline float swingUpTorque(const State& state, const float mass_kg,
                            const float com_length_m,
                            const float inertia_kg_m2,
                            const float energy_gain,
-                           const float arm_damping) {
+                           const float arm_damping,
+                           const float target_energy_j = 0.0F) {
   constexpr float gravity_m_s2 = 9.80665F;
   const float energy =
       0.5F * inertia_kg_m2 * state.pendulum_velocity_rad_s *
           state.pendulum_velocity_rad_s +
       mass_kg * gravity_m_s2 * com_length_m *
           (std::cos(state.pendulum_angle_rad) - 1.0F);
-  return energy_gain * (-energy) * state.pendulum_velocity_rad_s *
+  return energy_gain * (target_energy_j - energy) *
+             state.pendulum_velocity_rad_s *
              std::cos(state.pendulum_angle_rad) -
          arm_damping * state.arm_velocity_rad_s;
+}
+
+inline float swingApproachEnergyTarget(
+    const State& state, const float reserve_j_per_rad_s,
+    const float maximum_reserve_j) {
+  const bool approaching_upright =
+      std::fabs(state.pendulum_angle_rad) < 0.5F * kPi &&
+      state.pendulum_angle_rad * state.pendulum_velocity_rad_s < 0.0F;
+  if (!approaching_upright) return 0.0F;
+  return -std::fmin(maximum_reserve_j,
+                    reserve_j_per_rad_s *
+                        std::fabs(state.pendulum_velocity_rad_s));
 }
 
 inline float outwardSwingScale(const float arm_angle_rad,
@@ -191,13 +205,18 @@ inline float travelAwareSwingUpTorque(
     const State& state, const float mass_kg, const float com_length_m,
     const float inertia_kg_m2, const float energy_gain,
     const float arm_damping, const float arm_centering,
-    const float guard_start_rad, const float guard_full_rad) {
+    const float guard_start_rad, const float guard_full_rad,
+    const float approach_reserve_j_per_rad_s = 0.0F,
+    const float maximum_approach_reserve_j = 0.0F) {
   // Preserve full energy pumping near center and whenever it helps return the
   // arm. Only fade the component that would push an already displaced arm
   // farther outward; the restoring PD terms always retain authority.
+  const float target_energy_j = swingApproachEnergyTarget(
+      state, approach_reserve_j_per_rad_s,
+      maximum_approach_reserve_j);
   const float energy_torque =
       swingUpTorque(state, mass_kg, com_length_m, inertia_kg_m2,
-                    energy_gain, 0.0F);
+                    energy_gain, 0.0F, target_energy_j);
   const float guarded_energy_torque =
       energy_torque * outwardSwingScale(
                           state.arm_angle_rad, energy_torque,

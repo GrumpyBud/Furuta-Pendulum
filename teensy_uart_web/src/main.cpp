@@ -718,7 +718,9 @@ void runControlTick() {
             config::kPendulumInertiaKgM2, swing_settings.energy_gain,
             swing_settings.arm_damping, swing_settings.arm_centering,
             config::kSwingTravelGuardStartRad,
-            config::kSwingTravelGuardFullRad);
+            config::kSwingTravelGuardFullRad,
+            config::kSwingApproachReserveJPerRadS,
+            config::kSwingMaximumApproachReserveJ);
       }
       // The initial nudge also respects the same restoring terms, so it cannot
       // ignore an unexpected arm offset during the torque-mode handoff.
@@ -748,9 +750,12 @@ void runControlTick() {
         requested_torque, -final_torque_limit_nm, final_torque_limit_nm);
   }
 
+  const float torque_slew_nm_per_s =
+      mode == Mode::kSwingUp ? config::kSwingTorqueSlewNmPerSecond
+                             : config::kTorqueSlewNmPerSecond;
   commanded_torque_nm = furuta::slewLimit(
       commanded_torque_nm, requested_torque,
-      config::kTorqueSlewNmPerSecond * dt_s);
+      torque_slew_nm_per_s * dt_s);
   // State and gains use the configured positive arm coordinate. Convert the
   // logical torque back into the ODrive encoder/motor coordinate here.
   if (!odrive.setTorque(commanded_torque_nm * config::kMotorDirection)) {
